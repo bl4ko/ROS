@@ -1,0 +1,4 @@
+string move_type
+int32 duration
+---
+string response

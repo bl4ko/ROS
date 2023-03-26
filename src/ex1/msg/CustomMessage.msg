@@ -1,0 +1,2 @@
+string message
+int32 sequence_io
