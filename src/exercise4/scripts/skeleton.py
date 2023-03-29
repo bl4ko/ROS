@@ -14,40 +14,55 @@ from geometry_msgs.msg import TransformStamped
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
 
+from std_msgs.msg import ColorRGBA
+from geometry_msgs.msg import PointStamped, Vector3, Pose,Quaternion
+
+from visualization_msgs.msg import Marker, MarkerArray
+from tf2_geometry_msgs import PointStamped
+from tf2_ros import TransformListener
+from tf2_geometry_msgs import PointStamped
+from tf2_ros import Buffer, TransformListener
+import tf2_ros
+
 cv_map = np.zeros((1, 1), dtype=np.uint8)
 map_resolution = 0.0
 map_transform = TransformStamped()
 
+marker_pub = None
 
 def publish_markers(waypoints):
     # Create a MarkerPublisher for publishing markers
-    marker_pub = rospy.Publisher("waypoint_markers", Marker, queue_size=10)
 
-    # Create a Marker message for the waypoints
-    marker = Marker()
-    marker.header.frame_id = "map"
-    marker.type = Marker.SPHERE_LIST
-    marker.action = Marker.ADD
-    marker.scale.x = 0.2
-    marker.scale.y = 0.2
-    marker.scale.z = 0.2
-    marker.color.r = 1.0
-    marker.color.g = 0.0
-    marker.color.b = 0.0
-    marker.color.a = 1.0
-    marker.lifetime = rospy.Duration()
+    global marker_pub
 
-    # Add the waypoints to the Marker message
-    for waypoint in waypoints:
-        point = Point()
-        point.x = waypoint[0]
-        point.y = waypoint[1]
-        point.z = 0
-        marker.points.append(point)
-        print(waypoint)
+    # Create a Marker array 
+    markers = MarkerArray()
 
-    # Publish the Marker message
-    marker_pub.publish(marker)
+    # Create a Marker for each waypoint
+    for i, waypoint in enumerate(waypoints):
+        marker = Marker()
+        marker.id = i
+        marker.pose.position = Point(waypoint['x'], waypoint['y'], 0)
+        marker.header.stamp = rospy.Time(0)
+        marker.header.frame_id = 'map'
+        marker.pose.orientation = Quaternion(0.5, 0.5, 0.5, 0.5)
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        marker.frame_locked = False
+        marker.lifetime = rospy.Duration.from_sec(44)
+        marker.scale = Vector3(0.1, 0.1, 0.1)
+        #orange color
+        marker.color = ColorRGBA(1.0, 0.5, 0.0, 1.0)
+
+        markers.markers.append(marker)
+
+        print("marker",Point(waypoint['x'], waypoint['y'], 0))
+
+    # Publish the Marker array
+    marker_pub.publish(markers)
+
+    
+   
 
 def get_map(msg_map):
     size_x = msg_map.info.width
@@ -62,7 +77,7 @@ def get_map(msg_map):
         cv_map = np.zeros((size_y, size_x), dtype=np.uint8)
 
     map_resolution = msg_map.info.resolution
-    map_transform = TransformStamped()
+    global map_transform
     map_transform.transform.translation.x = msg_map.info.origin.position.x
     map_transform.transform.translation.y = msg_map.info.origin.position.y
     map_transform.transform.translation.z = msg_map.info.origin.position.z
@@ -104,14 +119,21 @@ def get_map(msg_map):
     overlay = np.where(cv_map == 255, new_image, cv_map)
 
     waypoints = skeleton_to_waypoints(skeleton)
-    img = np.zeros(cv_map.shape)
+    img = np.copy(new_image)
     for vertex in waypoints:
         img[vertex[1], vertex[0]] = 255
+
+
+    
 
     publish_markers(skeleton_to_waypoints2(skeleton, msg_map))
     cv2.imshow("Skeleton", img)
     # Display the images
     cv2.imshow("Overlay", overlay)
+
+    cv2.imshow("Skeleton 2", skeleton_image)
+
+
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
@@ -156,9 +178,11 @@ def skeleton_to_waypoints2(skeleton, map_data):
         cx = int(moment["m10"] / moment["m00"])
         cy = int(moment["m01"] / moment["m00"])
         # Convert to map coordinates
-        mx = map_origin.x + cx * map_resolution
-        my = map_origin.y + (map_height - cy) * map_resolution
-        vertices.append((mx, my))
+        mx = cx * map_resolution + map_origin.x
+        my = cy * map_resolution + map_origin.y
+
+
+        vertices.append({"x": mx, "y": my, "z": 0.0})
     return vertices
 
     
@@ -228,9 +252,37 @@ def load_map_from_files(pgm_file, yaml_file):
     return map_data, map_image
 
 def main():
+    global map_sub, marker_pub
     rospy.init_node("navigate_to_skeleton_waypoints")
     rospack = rospkg.RosPack()
     map_sub = rospy.Subscriber("map", OccupancyGrid, get_map)
+    marker_pub = rospy.Publisher("waypoint_markers", MarkerArray, queue_size=100)
+
+    #publish test markers
+    marker_array = MarkerArray()
+    marker = Marker()
+    marker.header.frame_id = "map"
+    marker.header.stamp = rospy.Time.now()
+    marker.ns = "waypoints"
+    marker.id = 0
+    marker.type = Marker.SPHERE_LIST
+    marker.action = Marker.ADD
+    marker.pose.orientation.w = 1.0
+    marker.scale.x = 0.1
+    marker.scale.y = 0.1
+    marker.scale.z = 0.1
+
+    marker.color.r = 1.0
+    marker.color.g = 0.0
+    marker.color.b = 0.0
+    marker.color.a = 1.0
+
+    marker.lifetime = rospy.Duration(0)
+    marker_array.markers.append(marker)
+    marker_pub.publish(marker_array)
+
+
+
     rospy.spin()
 
 
