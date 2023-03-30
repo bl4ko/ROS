@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import math
 import cv2
+from matplotlib import pyplot as plt
 import numpy as np
 import yaml
 import rospy
@@ -204,13 +205,20 @@ def get_map(msg_map):
     cv_map = cv2.erode(cv_map,kernel,iterations = 3)
 
     #show map
-    cv2.imshow("Map", cv_map)
+    #cv2.imshow("Map", cv_map)
+
+    #save map
+    #cv2.imwrite("map_ok.png", cv_map)
+
 
     
 
 
     # if map_data is not None:
     skeleton = extract_skeleton(cv_map)
+    print("skeleton",skeleton.shape)
+    plt.imsave("skeleton_OOOOOOO.png", skeleton, cmap='gray')
+
     # waypoints = skeleton_to_waypoints(skeleton, map_data)
 
     #save map
@@ -221,7 +229,7 @@ def get_map(msg_map):
     skeleton_image[skeleton] = 255
 
     #save skeleton
-    cv2.imwrite("skeleton_ok.png", skeleton_image)
+    #cv2.imwrite("skeleton_ok.png", skeleton_image.reshape(skeleton_image.shape[0], skeleton_image.shape[1], 1))
 
     final = skeleton_image[cv_map == 255]
     final_resized = cv2.resize(final, cv_map.shape[::-1], interpolation=cv2.INTER_NEAREST)
@@ -336,6 +344,10 @@ def nearest_neighbor(vertices, start_vertex):
     return path
 def find_branch_points(skeleton_image):
     sc=skeleton_image.copy()
+
+    #save skeleton
+    cv2.imwrite("skeleton_oldok.png", sc)
+
     #0-1
     dst = cv2.cornerHarris(sc, 9, 5, 0.04)
     # result is dilated for marking the corners

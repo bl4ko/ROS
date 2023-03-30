@@ -74,6 +74,10 @@ class MapManager:
     def get_map(self):
         with self.map_lock:  # Acquire the lock before accessing the map attribute
             return self.map
+        
+    def is_ready(self):
+        with self.map_lock:
+            return self.goals_ready
     
 
     def get_goals(self):
@@ -129,10 +133,18 @@ class MapManager:
         #make it safe to drive on 
         self.map = semi_safe_map
 
-        #magic code do not touch
-        skeleton_ = skeletonize(self.map)
+        #save map as image
+        #cv2.imwrite("map_map_manager.png", self.map)
+
+        #magic code start do not touch
+        f=np.flip(self.map,0)
+        skeleton_ = skeletonize(f)
+        #unflip
+        skeleton_ = np.flip(skeleton_,0)   
+
         skeleton_image = np.zeros_like(skeleton_, dtype=np.uint8)
         skeleton_image[skeleton_] = 255
+
 
         final = skeleton_image[self.map == 255]
         final_resized = cv2.resize(final, self.map.shape[::-1], interpolation=cv2.INTER_NEAREST)
@@ -141,12 +153,19 @@ class MapManager:
         new_image = np.zeros_like(self.map )
         new_image[self.map  == 255] = skeleton_image[self.map  == 255]
 
+        #magic code stop
+
         #find branch points note the map is flipped
         bp = self.find_branch_points(new_image)
+        
         bp_map = np.zeros(self.map.shape, dtype=np.uint8)
         
-        # for i in range(len(bp)):
-        #     bp_map[bp[i][1]][bp[i][0]] = 255
+        for i in range(len(bp)):
+            bp_map[bp[i][1]][bp[i][0]] = 255
+
+        #save branch points as image
+        #cv2.imwrite("branch_points_map_manager.png", bp_map)
+
         
         #visualize_map(bp_map, "branch points")
         
@@ -240,7 +259,7 @@ class MapManager:
         stop_criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
     # refine corner coordinates to subpixel accuracy
         corners = cv2.cornerSubPix(sc, np.float32(centroids), (5,5), (-1,-1), stop_criteria)
-
+        
         toret=[]
         for i in range(1, len(corners)):
             toret.append((int(corners[i,0]), int(corners[i,1])))
@@ -263,20 +282,14 @@ def test():
     #run node and wait for map the nshow it in plt
     rate = rospy.Rate(1)  # 1 Hz
     while not rospy.is_shutdown():
-        map_data = ps.get_map()
-        if map_data is not None:
-            print("map ready")
-            # visualize_map(map_data, "map")
-            # #save map
-            # cv2.imwrite("map.png", map_data)
+        if ps.is_ready():
 
-        goals = ps.get_goals()
-        if goals is not None and len(goals) > 0:
-            print("goals ready")
-            print(goals)
-            ps.publish_markers_of_goals(goals)
-        rate.sleep()
-
+            goals = ps.get_goals()
+            if goals is not None and len(goals) > 0:
+                print("goals ready")
+                print(goals)
+                ps.publish_markers_of_goals(goals)
+            rate.sleep()
 
 if __name__ == '__main__':
     print("start")
