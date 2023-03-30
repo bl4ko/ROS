@@ -20,6 +20,10 @@
   <run_depend>sensor_msgs</run_depend>
   <run_depend>geometry_msgs</run_depend>
   <run_depend>move_base_msgs</run_depend>
+  <run_depend>actionlib</run_depend>
+  <run_depend>actionlib_msgs</run_depend>
+  <run_depend>message_generation</run_depend>
+  
 
   <buildtool_depend>catkin</buildtool_depend>
 

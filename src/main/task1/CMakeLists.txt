@@ -10,7 +10,16 @@ find_package(catkin REQUIRED COMPONENTS
 	nav_msgs
 	std_msgs
 	geometry_msgs
+	message_generation
 )
+
+add_message_files(DIRECTORY msg
+  FILES
+  UniqueFaceCoords.msg
+)
+
+generate_messages(DEPENDENCIES std_msgs 
+geometry_msgs sensor_msgs)
 
 find_package( OpenCV REQUIRED )
 
