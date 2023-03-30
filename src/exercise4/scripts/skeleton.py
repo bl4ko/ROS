@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import math
 import cv2
 import numpy as np
 import yaml
@@ -13,6 +14,7 @@ from skimage.morphology import skeletonize  # Import Pose
 from geometry_msgs.msg import TransformStamped
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
+import sys
 
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PointStamped, Vector3, Pose,Quaternion
@@ -23,6 +25,102 @@ from tf2_ros import TransformListener
 from tf2_geometry_msgs import PointStamped
 from tf2_ros import Buffer, TransformListener
 import tf2_ros
+
+import rospy
+from actionlib import SimpleActionClient
+from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
+from geometry_msgs.msg import Pose, Point, Quaternion
+
+
+class MoveBaseClient:
+    def __init__(self, pose_seq):
+        self.pose_seq = pose_seq
+        self.goal_cnt = 0
+        self.client = SimpleActionClient("move_base", MoveBaseAction)
+        rospy.loginfo("Waiting for move_base action server...")
+        self.client.wait_for_server()
+        rospy.loginfo("Connected to move_base action server")
+
+    def done_cb(self, status, result):
+        if status == 2:
+            rospy.loginfo(
+                "Goal pose "
+                + str(self.goal_cnt + 1)
+                + " received a cancel request after it started executing, completed execution!"
+            )
+
+        if status == 3:
+            rospy.loginfo("Goal pose " + str(self.goal_cnt + 1) + " reached")
+            self.goal_cnt += 1
+            if self.goal_cnt < len(self.pose_seq):
+                self.send_next_goal()
+
+    def active_cb(self):
+        rospy.loginfo(
+            "Goal pose "
+            + str(self.goal_cnt + 1)
+            + " is now being processed by the Action Server"
+        )
+
+    def feedback_cb(self, feedback):
+        pass
+
+    def send_next_goal(self):
+        goal = MoveBaseGoal()
+        goal.target_pose.header.frame_id = "map"
+        goal.target_pose.header.stamp = rospy.Time.now()
+        goal.target_pose.pose = self.pose_seq[self.goal_cnt]
+        rospy.loginfo(
+            "Sending goal pose " + str(self.goal_cnt + 1) + " to Action Server"
+        )
+        rospy.loginfo(str(self.pose_seq[self.goal_cnt]))
+        self.client.send_goal(
+            goal,
+            done_cb=self.done_cb,
+            active_cb=self.active_cb,
+            feedback_cb=self.feedback_cb,
+        )
+
+    def movebase_client(self):
+        goal = MoveBaseGoal()
+        goal.target_pose.header.frame_id = "map"
+        goal.target_pose.header.stamp = rospy.Time.now()
+        goal.target_pose.pose = self.pose_seq[self.goal_cnt]
+
+        rospy.loginfo(
+            "Sending goal pose " + str(self.goal_cnt + 1) + " to Action Server"
+        )
+        rospy.loginfo(str(self.pose_seq[self.goal_cnt]))
+
+        # Send the goal and wait for the result
+        status = self.client.send_goal_and_wait(
+            goal, rospy.Duration(120), rospy.Duration(20)
+        )
+
+        # Reference for terminal status values: http://docs.ros.org/diamondback/api/actionlib_msgs/html/msg/GoalStatus.html
+        if status == 2:
+            rospy.loginfo(
+                "Goal pose "
+                + str(self.goal_cnt + 1)
+                + " received a cancel request after it started executing, completed execution!"
+            )
+
+        if status == 3:
+            rospy.loginfo("Goal pose " + str(self.goal_cnt + 1) + " reached")
+            self.check_goal_count()
+        else:
+            rospy.logwarn("Failed to reach goal pose " + str(self.goal_cnt + 1))
+            rospy.loginfo("Moving to the next goal pose")
+            self.check_goal_count()
+
+    def check_goal_count(self):
+        self.goal_cnt += 1
+        if self.goal_cnt < len(self.pose_seq):
+            self.movebase_client()
+        else:
+            rospy.loginfo("All goals reached!")
+            rospy.signal_shutdown("My work is done, time to go home!")
+
 
 cv_map = np.zeros((1, 1), dtype=np.uint8)
 map_resolution = 0.0
@@ -49,7 +147,7 @@ def publish_markers(waypoints):
         marker.type = Marker.CUBE
         marker.action = Marker.ADD
         marker.frame_locked = False
-        marker.lifetime = rospy.Duration.from_sec(44)
+        marker.lifetime = rospy.Duration.from_sec(777)
         marker.scale = Vector3(0.1, 0.1, 0.1)
         #orange color
         marker.color = ColorRGBA(1.0, 0.5, 0.0, 1.0)
@@ -99,6 +197,17 @@ def get_map(msg_map):
             elif value == 100:
                 cv_map[y, x] = 0
 
+
+
+    #make walls thinner
+    kernel = np.ones((3,3),np.uint8)
+    cv_map = cv2.erode(cv_map,kernel,iterations = 3)
+
+    #show map
+    cv2.imshow("Map", cv_map)
+    
+
+
     # if map_data is not None:
     skeleton = extract_skeleton(cv_map)
     # waypoints = skeleton_to_waypoints(skeleton, map_data)
@@ -118,24 +227,150 @@ def get_map(msg_map):
     # Overlay the new image over the original map
     overlay = np.where(cv_map == 255, new_image, cv_map)
 
-    waypoints = skeleton_to_waypoints(skeleton)
-    img = np.copy(new_image)
-    for vertex in waypoints:
-        img[vertex[1], vertex[0]] = 255
+    waypoints = skeleton_to_waypoints(new_image)
+    img = np.zeros_like(cv_map)
+    # for vertex in waypoints:
+    #     img[vertex[1], vertex[0]] = 255
 
 
     
 
-    publish_markers(skeleton_to_waypoints2(skeleton, msg_map))
+    #publish_markers(skeleton_to_waypoints2(skeleton, msg_map))
     cv2.imshow("Skeleton", img)
     # Display the images
     cv2.imshow("Overlay", overlay)
 
-    cv2.imshow("Skeleton 2", skeleton_image)
+    cv2.imshow("Skeleton image", new_image)
+
+
+    bp = find_branch_points(new_image)
+
+
+    marks=[]
+
+    for vertex in bp:
+        img[vertex[1], vertex[0]] = 255
+        mx = vertex[0] * map_resolution + map_transform.transform.translation.x
+        my = (cv_map.shape[0] - vertex[1]) * map_resolution + map_transform.transform.translation.y
+
+        marks.append({"x": mx, "y": my, "z": 0.0})
+
+    print("marks", marks)
+
+
+    publish_markers(marks)
+
+    #sort marks based on distance from start
+    starting_point = {"x": 0.0, "y": 0.0}  # Replace with your actual starting point
+
+# Sort the marks based on their distance from the starting point
+    #marks = sorted(marks, key=lambda mark: euclidean_distance(starting_point, mark))
+
+# Create a path using the sorted marks
+    #path = [{"x": mark["x"], "y": mark["y"], "z": mark["z"]} for mark in sorted_marks]
+
+    #marks to (x,y)
+    xy_marks = []
+    for mark in marks:
+        xy_marks.append((mark["x"], mark["y"]))
+
+
+
+    path = nearest_neighbor(xy_marks, xy_marks[0])
+
+    #(x,y) to marks
+    marks_path = []
+    for point in path:
+        marks_path.append({"x": point[0], "y": point[1], "z": 0.0})
+
+
+    #publish the path
+    path_plan(marks_path)
+
+    cv2.imwrite("pts.png", img)
+    cv2.imwrite("skeleton image.png", new_image) 
+    cv2.imwrite("overlay.png", overlay)
+    
+
+
 
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+
+def euclidean_distance(point1, point2):
+    return np.sqrt((point1["x"] - point2["x"])**2 + (point1["y"] - point2["y"])**2)
+
+def euclidean_distance2(point1, point2):
+    return ((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)**0.5
+def nearest_neighbor(vertices, start_vertex):
+    unvisited_vertices = set(vertices)
+    unvisited_vertices.remove(start_vertex)
+    current_vertex = start_vertex
+    path = [start_vertex]
+
+    while unvisited_vertices:
+        nearest_vertex = None
+        nearest_distance = sys.float_info.max
+
+        for vertex in unvisited_vertices:
+            distance = euclidean_distance2(current_vertex, vertex)
+            if distance < nearest_distance:
+                nearest_distance = distance
+                nearest_vertex = vertex
+
+        path.append(nearest_vertex)
+        unvisited_vertices.remove(nearest_vertex)
+        current_vertex = nearest_vertex
+
+    return path
+def find_branch_points(skeleton_image):
+    sc=skeleton_image.copy()
+    #0-1
+    dst = cv2.cornerHarris(sc, 9, 5, 0.04)
+    # result is dilated for marking the corners
+    dst = cv2.dilate(dst,None)
+
+    # Threshold for an optimal value, it may vary depending on the image.
+    img_thresh = cv2.threshold(dst, 0.32*dst.max(), 255, 0)[1]
+    img_thresh = np.uint8(img_thresh)
+
+    # get the matrix with the x and y locations of each centroid
+    centroids = cv2.connectedComponentsWithStats(img_thresh)[3]
+
+    stop_criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+# refine corner coordinates to subpixel accuracy
+    corners = cv2.cornerSubPix(sc, np.float32(centroids), (5,5), (-1,-1), stop_criteria)
+
+    toret=[]
+    for i in range(1, len(corners)):
+        toret.append((int(corners[i,0]), int(corners[i,1])))
+    
+    return toret
+
+def path_plan(path):
+
+    default_orientation = Quaternion(0.0, 0.0, 0.0, 1.0)
+    pose_seq = []
+
+    for i in range(0, len(path)):
+        pose = Pose()
+        pose.position = Point(path[i]['x'], path[i]['y'], 0.0)
+        pose.orientation = default_orientation
+        pose_seq.append(pose)
+
+    move_base_client = MoveBaseClient(pose_seq)
+    move_base_client.movebase_client()
+
+
+
+
+
+
+
+
+
 
 
 def navigate_to_waypoint(waypoint):
