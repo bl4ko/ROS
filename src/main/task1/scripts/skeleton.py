@@ -205,6 +205,7 @@ def get_map(msg_map):
 
     #show map
     cv2.imshow("Map", cv_map)
+
     
 
 
@@ -212,9 +213,15 @@ def get_map(msg_map):
     skeleton = extract_skeleton(cv_map)
     # waypoints = skeleton_to_waypoints(skeleton, map_data)
 
+    #save map
+    
+
     # Create an image of the skeleton map
     skeleton_image = np.zeros_like(skeleton, dtype=np.uint8)
     skeleton_image[skeleton] = 255
+
+    #save skeleton
+    cv2.imwrite("skeleton_ok.png", skeleton_image)
 
     final = skeleton_image[cv_map == 255]
     final_resized = cv2.resize(final, cv_map.shape[::-1], interpolation=cv2.INTER_NEAREST)
@@ -244,6 +251,8 @@ def get_map(msg_map):
 
 
     bp = find_branch_points(new_image)
+
+    print("branch points", bp)
 
 
     marks=[]
