@@ -4,7 +4,6 @@ import rospy
 import threading
 import cv2
 import tf2_geometry_msgs
-from matplotlib import pyplot as plt
 from nav_msgs.msg import OccupancyGrid
 from skimage.morphology import skeletonize
 from std_msgs.msg import ColorRGBA
@@ -13,8 +12,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 from tf2_geometry_msgs import PointStamped
 from typing import Tuple
 from tf import transformations as t
+from matplotlib import pyplot as plt
 from bresenham import bresenham
-
 
 
 # This script retrieves the map from the map_server and saves it in a 2D array.
@@ -29,6 +28,8 @@ class MapManager:
 
     def __init__(self):
         self.map = None
+        self.cost_map = None
+        self.accessible_costmap = None
         self.skeleton_overlay = None
         self.branch_points = None
         self.map_subscriber = rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
@@ -46,8 +47,6 @@ class MapManager:
         self.size_x = None
         self.size_y = None
         self.map_frame_id = None
-        self.cost_map = None
-        self.accessible_costmap = None
 
     def map_callback(self, data) -> None:
         """
@@ -56,52 +55,43 @@ class MapManager:
         with self.map_lock:  # Acquire the lock before modifying the map attribute
             self.map_processing(data)
 
-
     def cost_map_callback(self, map_data):
-        #rospy.loginfo(str(map_data.header))
+        # rospy.loginfo(str(map_data.header))
         size_x = map_data.info.width
         size_y = map_data.info.height
 
         rospy.loginfo("CostMap size: x: %s, y: %s." % (str(size_x), str(size_y)))
 
         if size_x < 3 or size_y < 3:
-            rospy.loginfo("CostMap size only: x: %s, y: %s. NOT running CostMap to image conversion." % (str(size_x), str(size_y)))
+            rospy.loginfo(
+                "CostMap size only: x: %s, y: %s. NOT running CostMap to image conversion."
+                % (str(size_x), str(size_y))
+            )
             return
-        
+
         cost_map_resolution = map_data.info.resolution
         rospy.loginfo("cost_map resolution: %s" % str(cost_map_resolution))
 
-        
-        #self.map = np.array(map_data.data, dtype = np.int8).reshape((size_y, size_x))
         self.cost_map = np.array(map_data.data).reshape((size_y, size_x))
-
-        # flip on the rows to get correct image (flip along y axis)
-        # is it neccesary in our case - doe not seem to be because we will not transform y later at conversion
-        # self.map = np.flip(self.map, 0)
 
         # get correct numbers
         self.cost_map[self.cost_map == -1] = 127
         self.cost_map[self.cost_map == 0] = 255
         self.cost_map[self.cost_map == 100] = 0
 
-        #plt.imshow(self.map, interpolation='nearest')
-        #plt.show()
-        #rospy.loginfo(str(self.map_transform))
-
         # remember only accessible positions
         self.accessible_costmap = np.copy(self.cost_map)
 
-        # for old map
-        # self.accessible_costmap[self.accessible_costmap != 255] = 0
-        #threshold_available_map_point = 50
         threshold_available_map_point = 60
-        self.accessible_costmap[self.accessible_costmap > threshold_available_map_point] = 0
+        self.accessible_costmap[
+            self.accessible_costmap > threshold_available_map_point
+        ] = 0
         self.accessible_costmap[self.accessible_costmap > 0] = 255
 
         # erode accessible_costmap to make sure we get more central reachable points
         self.accessible_costmap = np.uint8(self.accessible_costmap)
-        kernel = np.ones((3,3), np.uint8)
-        #kernel = np.ones((5,5), np.uint8)
+        kernel = np.ones((3, 3), np.uint8)
+        # kernel = np.ones((5,5), np.uint8)
         self.accessible_costmap = cv2.erode(self.accessible_costmap, kernel)
 
     def get_map(self) -> np.ndarray:
@@ -201,6 +191,12 @@ class MapManager:
         self.goals_ready = True
 
     def skeletonize_map(self) -> np.ndarray:
+        """
+        Skeletonize the map, and return the skeleton overlay.
+
+        Returns:
+            np.ndarray: The skeleton overlay.
+        """
         # Skeletonize the map: The map is flipped vertically, skletenozied
         # and then flipped back. The skeletonization process finds the "skeleton"
         # of the free space in the map, which is a thinned, single-pixel wide
@@ -327,8 +323,9 @@ class MapManager:
         cv2.imshow("overlayed branch points", overlayed_bp)
         cv2.waitKey(0)
 
-
-    def get_face_greet_location_candidates_perpendicular(self, x_ce, y_ce, fpose_left, fpose_right, d=30):
+    def get_face_greet_location_candidates_perpendicular(
+        self, x_ce, y_ce, fpose_left, fpose_right, d=30
+    ):
         x_left = fpose_left.position.x
         y_left = fpose_left.position.y
         x_right = fpose_right.position.x
@@ -341,33 +338,33 @@ class MapManager:
         dy = y_right - y_left
 
         # get normalized perpendicular vector
-        perp_dx = -dy / ((dy*dy+dx*dx)**0.5)
-        perp_dy = dx / ((dy*dy+dx*dx)**0.5)
+        perp_dx = -dy / ((dy * dy + dx * dx) ** 0.5)
+        perp_dy = dx / ((dy * dy + dx * dx) ** 0.5)
 
-        #x_start = round(- perp_dx * d + x_ce)
-        #y_start = round(- perp_dy * d + y_ce)
-        #x_finish = round(perp_dx * d + x_ce)
-        #y_finish = round(perp_dy * d + y_ce)
+        # x_start = round(- perp_dx * d + x_ce)
+        # y_start = round(- perp_dy * d + y_ce)
+        # x_finish = round(perp_dx * d + x_ce)
+        # y_finish = round(perp_dy * d + y_ce)
         x_start = x_ce
         y_start = y_ce
-        x_finish = round(- perp_dx * d + x_ce)
-        y_finish = round(- perp_dy * d + y_ce)
+        x_finish = round(-perp_dx * d + x_ce)
+        y_finish = round(-perp_dy * d + y_ce)
 
-        #candidates = list(bresenham(x_ce, y_ce, cnd_tmp[len(cnd_tmp)-1][0], cnd_tmp[len(cnd_tmp)-1][1]))
+        # candidates = list(bresenham(x_ce, y_ce, cnd_tmp[len(cnd_tmp)-1][0], cnd_tmp[len(cnd_tmp)-1][1]))
         candidates = list(bresenham(x_start, y_start, x_finish, y_finish))
-        #print("Candidates for:")
-        #print(candidates)
+        # print("Candidates for:")
+        # print(candidates)
 
-        #candidates.reverse()
+        # candidates.reverse()
 
-        #return candidates
+        # return candidates
 
         # go through candidates and check if they can be moved to
         candidates_reachable = []
         for candidate in candidates:
             c = candidate[0]
             r = candidate[1]
-            if (self.in_map_bounds(c, r) and self.can_move_to(c, r)):
+            if self.in_map_bounds(c, r) and self.can_move_to(c, r):
                 candidates_reachable.append(candidate)
                 # if using central as start
                 break
@@ -382,13 +379,14 @@ class MapManager:
             x = backup_candidate[0]
             y = backup_candidate[1]
 
-            x_close, y_close = self.nearest_nonzero_to_point(self.accessible_costmap, x, y)
+            x_close, y_close = self.nearest_nonzero_to_point(
+                self.accessible_costmap, x, y
+            )
             candidates_reachable.append((x_close, y_close))
             print(candidates_reachable)
 
-
         return candidates_reachable
-    
+
     def can_move_to(self, x, y):
         if self.map_coord_cost(x, y) == 127:
             # unknown
@@ -407,22 +405,20 @@ class MapManager:
             return False
 
         return True
-    
+
     def in_map_bounds(self, x, y):
         if (x >= 0) and (y >= 0) and (x < self.size_x) and (y < self.size_y):
             return True
         else:
             return False
-        
+
     def nearest_nonzero_to_point(self, a, x, y):
         """
         Return indices of nonzero element closest to point (x,y) in array a
         """
-        r,c = np.nonzero(a)
-        min_idx = ((r - y)**2 + (c - x)**2).argmin()
+        r, c = np.nonzero(a)
+        min_idx = ((r - y) ** 2 + (c - x) ** 2).argmin()
         return c[min_idx], r[min_idx]
-
-
 
     """
 
@@ -434,19 +430,23 @@ class MapManager:
     on which the face is mounted - closer to robot that was able to "see" it)
     @return: (x_point, y_point) in world coordinates used for setting goals.
     """
+
     def get_face_greet_location(self, x_c, y_c, x_r, y_r, fpose_left, fpose_right):
 
         # convert to map coordinates
-        (x_c, y_c) = self.world_to_map_coords(x_c, y_c)  #face center
-        (x_r, y_r) = self.world_to_map_coords(x_r, y_r)  
+        (x_c, y_c) = self.world_to_map_coords(x_c, y_c)  # face center
+        (x_r, y_r) = self.world_to_map_coords(x_r, y_r)
 
-        rospy.loginfo("Robot converted to map coordinates: (%s, %s)" % (str(x_r), str(y_r)))
+        rospy.loginfo(
+            "Robot converted to map coordinates: (%s, %s)" % (str(x_r), str(y_r))
+        )
 
-        candidates = self.get_face_greet_location_candidates_perpendicular(x_c, y_c, fpose_left, fpose_right)
-        #use line math to get candidates
+        candidates = self.get_face_greet_location_candidates_perpendicular(
+            x_c, y_c, fpose_left, fpose_right
+        )
+        # use line math to get candidates
 
-
-        min_dist = float('inf')
+        min_dist = float("inf")
         res_point = None
         """
         for p in candidates:
@@ -461,19 +461,38 @@ class MapManager:
 
         # convert to world coordinates and return res
         return self.map_to_world_coords(res_point[0], res_point[1])
-    
+
     def map_coord_cost(self, x, y):
         if not self.in_map_bounds(x, y):
             # wrong data
             rospy.logerr("Invalid map coordinates.")
             return None
         return self.cost_map[y][x]
-    
+
     def get_inverse_transform(self):
         # https://answers.ros.org/question/229329/what-is-the-right-way-to-inverse-a-transform-in-python/
         # https://www.programcreek.com/python/example/96799/tf.transformations
         # http://docs.ros.org/en/jade/api/tf/html/python/transformations.html
-        transform_tmp = t.concatenate_matrices(t.translation_matrix(np.array([self.map_transform.transform.translation.x, self.map_transform.transform.translation.y, self.map_transform.transform.translation.z])), t.quaternion_matrix(np.array([self.map_transform.transform.rotation.x, self.map_transform.transform.rotation.y, self.map_transform.transform.rotation.z])))
+        transform_tmp = t.concatenate_matrices(
+            t.translation_matrix(
+                np.array(
+                    [
+                        self.map_transform.transform.translation.x,
+                        self.map_transform.transform.translation.y,
+                        self.map_transform.transform.translation.z,
+                    ]
+                )
+            ),
+            t.quaternion_matrix(
+                np.array(
+                    [
+                        self.map_transform.transform.rotation.x,
+                        self.map_transform.transform.rotation.y,
+                        self.map_transform.transform.rotation.z,
+                    ]
+                )
+            ),
+        )
         inverse_transform = t.inverse_matrix(transform_tmp)
         translation = t.translation_from_matrix(inverse_transform)
         rotation = t.quaternion_from_matrix(inverse_transform)
@@ -487,7 +506,7 @@ class MapManager:
         res.transform.rotation.z = rotation[2]
         res.transform.rotation.w = rotation[3]
         return res
-    
+
     def world_to_map_coords(self, x, y):
         inverse_transform = self.get_inverse_transform()
 
@@ -518,15 +537,12 @@ def test():
     rospy.init_node("path_setter", anonymous=True)
     ps = MapManager()
 
-    # run node and wait for map the nshow it in plt
     rate = rospy.Rate(1)  # 1 Hz
     while not rospy.is_shutdown():
         if ps.is_ready():
 
             goals = ps.get_goals()
             if goals is not None and len(goals) > 0:
-                #print("goals ready")
-                #print(goals)
                 ps.publish_markers_of_goals(goals)
             rate.sleep()
 

@@ -11,6 +11,7 @@ black==23.1.0
 blinker==1.4
 bondpy==1.8.6
 breezy==3.0.2
+bresenham==0.2.1
 Brlapi==0.7.0
 camera-calibration==1.17.0
 camera-calibration-parsers==1.12.0
