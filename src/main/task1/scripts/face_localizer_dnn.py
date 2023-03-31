@@ -308,8 +308,8 @@ class FaceLocalizer:
             pose.position.y = point_world.point.y
             pose.position.z = point_world.point.z
 
-        except Exception as e:
-            print(e)
+        except Exception as error:
+            print(error)
             pose = None
         return pose
 

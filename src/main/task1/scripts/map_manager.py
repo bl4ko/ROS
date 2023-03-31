@@ -23,6 +23,7 @@ UNKNOWN = 127
 FREE_SPACE = 255
 WALL_THRESHOLD = 38
 
+
 class MapManager:
     """
     A class for managaing a map, processing it and publishing markers for points to visit.
@@ -102,20 +103,20 @@ class MapManager:
 
             # erode accessible_costmap to make sure we get more central reachable points
             self.accessible_costmap = np.uint8(self.accessible_costmap)
-            #kernel = np.ones((3, 3), np.uint8)
-            kernel = np.ones((3,3), np.uint8)
+            # kernel = np.ones((3, 3), np.uint8)
+            kernel = np.ones((3, 3), np.uint8)
             self.accessible_costmap = cv2.erode(self.accessible_costmap, kernel)
 
             # cv2.imshow("cost_map", self.cost_map)
-            
+
             # cv2.imshow("accessible_costmap", self.accessible_costmap)
             # cv2.waitKey(0)
 
             self.cost_map_ready = True
 
-            #save cost map
-            #cv2.imwrite("cost_map.png", self.cost_map)
-            #cv2.imwrite("accessible_costmap.png", self.accessible_costmap)
+            # save cost map
+            # cv2.imwrite("cost_map.png", self.cost_map)
+            # cv2.imwrite("accessible_costmap.png", self.accessible_costmap)
 
     def get_map(self) -> np.ndarray:
         """
@@ -135,7 +136,7 @@ class MapManager:
             bool: True if the goals are ready, False otherwise.
         """
 
-        #both cost map and map must be ready
+        # both cost map and map must be ready
         with self.cost_map_lock:
             if not self.cost_map_ready:
                 return False
@@ -353,9 +354,10 @@ class MapManager:
         cv2.waitKey(0)
 
     def get_face_greet_location_candidates_perpendicular(
-        self, x_ce, y_ce, fpose_left, fpose_right, d=30):
+        self, x_ce, y_ce, fpose_left, fpose_right, d=30
+    ):
 
-        with self.cost_map_lock:  # lock the cost map 
+        with self.cost_map_lock:  # lock the cost map
 
             x_left = fpose_left.position.x
             y_left = fpose_left.position.y
@@ -442,12 +444,6 @@ class MapManager:
             return False  # Treat unknown cost values as obstacles
             # return True  # Treat unknown cost values as free space
 
-        
-        print("Unknown cost value")
-        print(self.map_coord_cost(x, y))
-
-        return False
-
     def in_map_bounds(self, x, y):
         if (x >= 0) and (y >= 0) and (x < self.size_x) and (y < self.size_y):
             return True
@@ -469,9 +465,6 @@ class MapManager:
         print("Face center: (%s, %s)" % (str(x_c), str(y_c)))
         print("Robot: (%s, %s)" % (str(x_r), str(y_r)))
 
-        
-
-
         (x_c, y_c) = self.world_to_map_coords(x_c, y_c)  # face center
         (x_r, y_r) = self.world_to_map_coords(x_r, y_r)
 
@@ -486,15 +479,15 @@ class MapManager:
 
         min_dist = float("inf")
         res_point = None
-        """
-        for p in candidates:
-            x = p[0]
-            y = p[1]
-            d = self.dist_euclidean(x, y, x_r, y_r)
-            if d < min_dist:
-                min_dist = d
-                res_point = p
-        """
+
+        # for p in candidates:
+        #     x = p[0]
+        #     y = p[1]
+        #     d = self.dist_euclidean(x, y, x_r, y_r)
+        #     if d < min_dist:
+        #         min_dist = d
+        #         res_point = p
+
         res_point = candidates[0]
 
         # convert to world coordinates and return res
@@ -548,7 +541,7 @@ class MapManager:
     def world_to_map_coords(self, x, y):
         inverse_transform = self.get_inverse_transform()
 
-        #rospy.loginfo("Inverse transform: %s" % str(inverse_transform))
+        # rospy.loginfo("Inverse transform: %s" % str(inverse_transform))
 
         pt = PointStamped()
         pt.point.x = x

@@ -125,17 +125,12 @@ class Brain:
             #rospy.loginfo(str(res))
             return res
         
-
-
         
     def degrees_to_rad(self, deg):
         return deg * math.pi / 180
 
-    """
-    Rotates the robot for a given angle in degrees.
-    Change velocity for speed of rotation.
-    """
-    def rotate(self, angle_deg, angular_speed = 2):
+    
+    def rotate(self, angle_deg, angular_speed = 0.7):
         rospy.loginfo("Rotating.")
 
         twist = Twist()
