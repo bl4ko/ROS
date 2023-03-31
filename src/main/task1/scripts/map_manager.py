@@ -27,11 +27,11 @@ class MapManager:
     """
 
     def __init__(self):
-        self.map = None
-        self.cost_map = None
-        self.accessible_costmap = None
-        self.skeleton_overlay = None
-        self.branch_points = None
+        self.map = None  # Map from /map topic
+        self.cost_map = None  # Cost map from move_base/global_costmap/costmap
+        self.accessible_costmap = None  # Accesible points in the cost map
+        self.skeleton_overlay = None  # Overlay of the skeleton on the map
+        self.branch_points = None  # Branch points in the skeleton
         self.map_subscriber = rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
         self.cost_map_subscriber = rospy.Subscriber(
             "/move_base/global_costmap/costmap", OccupancyGrid, self.cost_map_callback
@@ -55,8 +55,11 @@ class MapManager:
         with self.map_lock:  # Acquire the lock before modifying the map attribute
             self.map_processing(data)
 
-    def cost_map_callback(self, map_data):
-        # rospy.loginfo(str(map_data.header))
+    def cost_map_callback(self, map_data) -> None:
+        """
+        Initializes the cost map and accessible cost map (only accessible positions).
+        """
+
         size_x = map_data.info.width
         size_y = map_data.info.height
 
@@ -72,7 +75,9 @@ class MapManager:
         cost_map_resolution = map_data.info.resolution
         rospy.loginfo("cost_map resolution: %s" % str(cost_map_resolution))
 
-        self.cost_map = np.array(map_data.data).reshape((size_y, size_x))
+        self.cost_map = (
+            np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
+        )
 
         # get correct numbers
         self.cost_map[self.cost_map == -1] = 127
@@ -94,6 +99,10 @@ class MapManager:
         # kernel = np.ones((5,5), np.uint8)
         self.accessible_costmap = cv2.erode(self.accessible_costmap, kernel)
 
+        cv2.imshow("cost_map", self.cost_map)
+        cv2.imshow("accessible_costmap", self.accessible_costmap)
+        cv2.waitKey(0)
+
     def get_map(self) -> np.ndarray:
         """
         Get the current map.
@@ -104,7 +113,7 @@ class MapManager:
         with self.map_lock:  # Acquire the lock before accessing the map attribute
             return self.map
 
-    def is_ready(self):
+    def is_ready(self) -> bool:
         """
         Check if the goals are ready.
 
@@ -123,7 +132,7 @@ class MapManager:
         with self.map_lock:
             return self.goal_points
 
-    def map_processing(self, map_data):
+    def map_processing(self, map_data: OccupancyGrid) -> None:
         """
         Process the map data to find goals and publish markers
 
@@ -420,17 +429,6 @@ class MapManager:
         min_idx = ((r - y) ** 2 + (c - x) ** 2).argmin()
         return c[min_idx], r[min_idx]
 
-    """
-
-    
-    Returns the coordinates of points which is closest to  point (x_ce, y_ce),
-    is empty and far enough from the wall (read from cost_map)
-    AND is closest to point (x_r, y_r) - robot at face detection
-    (The idea being that this point will be on the correct side of the wall
-    on which the face is mounted - closer to robot that was able to "see" it)
-    @return: (x_point, y_point) in world coordinates used for setting goals.
-    """
-
     def get_face_greet_location(self, x_c, y_c, x_r, y_r, fpose_left, fpose_right):
 
         # convert to map coordinates
@@ -525,14 +523,6 @@ class MapManager:
         return (x_res, y_res)
 
 
-def visualize_map(map_data, title="vis"):
-    plt.imshow(map_data, cmap="gray", origin="lower")
-    plt.title(title)
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.show()
-
-
 def test():
     rospy.init_node("path_setter", anonymous=True)
     ps = MapManager()
@@ -548,5 +538,4 @@ def test():
 
 
 if __name__ == "__main__":
-    print("start")
     test()
