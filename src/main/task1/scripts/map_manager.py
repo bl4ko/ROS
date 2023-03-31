@@ -1,18 +1,16 @@
 #!/usr/bin/python3
+import threading
+from typing import Tuple
+import cv2
 import numpy as np
 import rospy
-import threading
-import cv2
 import tf2_geometry_msgs
 from nav_msgs.msg import OccupancyGrid
 from skimage.morphology import skeletonize
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PointStamped, Vector3, Point, Quaternion, TransformStamped
 from visualization_msgs.msg import Marker, MarkerArray
-from tf2_geometry_msgs import PointStamped
-from typing import Tuple
 from tf import transformations as t
-from matplotlib import pyplot as plt
 from bresenham import bresenham
 
 

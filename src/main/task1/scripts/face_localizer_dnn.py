@@ -1,12 +1,15 @@
+"""
+Module for face localization using DNN
+"""
 #!/usr/bin/python3
 import math
 import threading
-import rospy
+from os.path import dirname, join
 import cv2
 import numpy as np
 from map_manager import MapManager
 import tf2_ros
-from os.path import dirname, join
+import rospy
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PointStamped, Vector3, Pose, Quaternion
 from cv_bridge import CvBridge, CvBridgeError
@@ -14,9 +17,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 import message_filters
 from message_filters import ApproximateTimeSynchronizer
-from geometry_msgs.msg import PointStamped, Vector3, Pose, Quaternion
 from tf.transformations import quaternion_from_euler
-from std_msgs.msg import ColorRGBA
 from task1.msg import UniqueFaceCoords
 
 
@@ -77,7 +78,7 @@ class DetectedFacesTracker:
         )
 
         # check if the face is close to any of the existing faces and if it is on the same side of the wall
-        for i in range(len(self.grouped_faces_by_distance)):
+        for i, face in enumerate(self.grouped_faces_by_distance):
             avg_pose = self.grouped_faces_by_distance[i]["avg_pose"]
 
             # we store every normal just in case we need it later
@@ -85,6 +86,7 @@ class DetectedFacesTracker:
             first_face_in_group_normal = self.grouped_faces_by_distance[i][
                 "potential_faces_normals"
             ][0]
+
             n1, n2 = first_face_in_group_normal[0], first_face_in_group_normal[1]
             same_side = self.same_side_normal(
                 new_face_normal[0], new_face_normal[1], n1, n2
