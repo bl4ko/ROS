@@ -17,7 +17,11 @@ from bresenham import bresenham
 # This script retrieves the map from the map_server and saves it in a 2D array.
 # It also uses ekeletonize to get most important points to visit in the map.
 # The points to visit are published as markers in rviz.
-
+LETHAL_OBSTACLE = 0
+INFLATED_OBSTACLE = 99
+UNKNOWN = 127
+FREE_SPACE = 255
+WALL_THRESHOLD = 38
 
 class MapManager:
     """
@@ -35,6 +39,7 @@ class MapManager:
             "/move_base/global_costmap/costmap", OccupancyGrid, self.cost_map_callback
         )
         self.map_lock = threading.Lock()  # Add a lock for the map attribute
+        self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
         self.marker_publisher = rospy.Publisher(
             "goal_markers", MarkerArray, queue_size=100
         )
@@ -45,6 +50,8 @@ class MapManager:
         self.size_x = None
         self.size_y = None
         self.map_frame_id = None
+
+        self.cost_map_ready = False
 
     def map_callback(self, data) -> None:
         """
@@ -58,48 +65,57 @@ class MapManager:
         Initializes the cost map and accessible cost map (only accessible positions).
         """
 
-        size_x = map_data.info.width
-        size_y = map_data.info.height
+        with self.cost_map_lock:  # Acquire the lock before modifying the map attribute
 
-        rospy.loginfo("CostMap size: x: %s, y: %s." % (str(size_x), str(size_y)))
+            size_x = map_data.info.width
+            size_y = map_data.info.height
 
-        if size_x < 3 or size_y < 3:
-            rospy.loginfo(
-                "CostMap size only: x: %s, y: %s. NOT running CostMap to image conversion."
-                % (str(size_x), str(size_y))
+            rospy.loginfo("CostMap size: x: %s, y: %s." % (str(size_x), str(size_y)))
+
+            if size_x < 3 or size_y < 3:
+                rospy.loginfo(
+                    "CostMap size only: x: %s, y: %s. NOT running CostMap to image conversion."
+                    % (str(size_x), str(size_y))
+                )
+                return
+
+            cost_map_resolution = map_data.info.resolution
+            rospy.loginfo("cost_map resolution: %s" % str(cost_map_resolution))
+
+            self.cost_map = (
+                np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
             )
-            return
 
-        cost_map_resolution = map_data.info.resolution
-        rospy.loginfo("cost_map resolution: %s" % str(cost_map_resolution))
+            # get correct numbers
+            self.cost_map[self.cost_map == -1] = 127
+            self.cost_map[self.cost_map == 0] = 255
+            self.cost_map[self.cost_map == 100] = 0
 
-        self.cost_map = (
-            np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
-        )
+            # remember only accessible positions
+            self.accessible_costmap = np.copy(self.cost_map)
 
-        # get correct numbers
-        self.cost_map[self.cost_map == -1] = 127
-        self.cost_map[self.cost_map == 0] = 255
-        self.cost_map[self.cost_map == 100] = 0
+            threshold_available_map_point = 60
+            # self.accessible_costmap[
+            #     self.accessible_costmap > threshold_available_map_point
+            # ] = 0
+            # self.accessible_costmap[self.accessible_costmap > 0] = 255
 
-        # remember only accessible positions
-        self.accessible_costmap = np.copy(self.cost_map)
+            # erode accessible_costmap to make sure we get more central reachable points
+            self.accessible_costmap = np.uint8(self.accessible_costmap)
+            #kernel = np.ones((3, 3), np.uint8)
+            kernel = np.ones((3,3), np.uint8)
+            self.accessible_costmap = cv2.erode(self.accessible_costmap, kernel)
 
-        threshold_available_map_point = 60
-        self.accessible_costmap[
-            self.accessible_costmap > threshold_available_map_point
-        ] = 0
-        self.accessible_costmap[self.accessible_costmap > 0] = 255
+            # cv2.imshow("cost_map", self.cost_map)
+            
+            # cv2.imshow("accessible_costmap", self.accessible_costmap)
+            # cv2.waitKey(0)
 
-        # erode accessible_costmap to make sure we get more central reachable points
-        self.accessible_costmap = np.uint8(self.accessible_costmap)
-        kernel = np.ones((3, 3), np.uint8)
-        # kernel = np.ones((5,5), np.uint8)
-        self.accessible_costmap = cv2.erode(self.accessible_costmap, kernel)
+            self.cost_map_ready = True
 
-        cv2.imshow("cost_map", self.cost_map)
-        cv2.imshow("accessible_costmap", self.accessible_costmap)
-        cv2.waitKey(0)
+            #save cost map
+            #cv2.imwrite("cost_map.png", self.cost_map)
+            #cv2.imwrite("accessible_costmap.png", self.accessible_costmap)
 
     def get_map(self) -> np.ndarray:
         """
@@ -118,6 +134,12 @@ class MapManager:
         Returns:
             bool: True if the goals are ready, False otherwise.
         """
+
+        #both cost map and map must be ready
+        with self.cost_map_lock:
+            if not self.cost_map_ready:
+                return False
+
         with self.map_lock:
             return self.goals_ready
 
@@ -331,87 +353,100 @@ class MapManager:
         cv2.waitKey(0)
 
     def get_face_greet_location_candidates_perpendicular(
-        self, x_ce, y_ce, fpose_left, fpose_right, d=30
-    ):
-        x_left = fpose_left.position.x
-        y_left = fpose_left.position.y
-        x_right = fpose_right.position.x
-        y_right = fpose_right.position.y
+        self, x_ce, y_ce, fpose_left, fpose_right, d=30):
 
-        # with a vector to avoid problems with lines perpendicular to x axis
+        with self.cost_map_lock:  # lock the cost map 
 
-        # current vector
-        dx = x_right - x_left
-        dy = y_right - y_left
+            x_left = fpose_left.position.x
+            y_left = fpose_left.position.y
+            x_right = fpose_right.position.x
+            y_right = fpose_right.position.y
 
-        # get normalized perpendicular vector
-        perp_dx = -dy / ((dy * dy + dx * dx) ** 0.5)
-        perp_dy = dx / ((dy * dy + dx * dx) ** 0.5)
+            # with a vector to avoid problems with lines perpendicular to x axis
 
-        # x_start = round(- perp_dx * d + x_ce)
-        # y_start = round(- perp_dy * d + y_ce)
-        # x_finish = round(perp_dx * d + x_ce)
-        # y_finish = round(perp_dy * d + y_ce)
-        x_start = x_ce
-        y_start = y_ce
-        x_finish = round(-perp_dx * d + x_ce)
-        y_finish = round(-perp_dy * d + y_ce)
+            # current vector
+            dx = x_right - x_left
+            dy = y_right - y_left
 
-        # candidates = list(bresenham(x_ce, y_ce, cnd_tmp[len(cnd_tmp)-1][0], cnd_tmp[len(cnd_tmp)-1][1]))
-        candidates = list(bresenham(x_start, y_start, x_finish, y_finish))
-        # print("Candidates for:")
-        # print(candidates)
+            # get normalized perpendicular vector
+            perp_dx = -dy / ((dy * dy + dx * dx) ** 0.5)
+            perp_dy = dx / ((dy * dy + dx * dx) ** 0.5)
 
-        # candidates.reverse()
+            # x_start = round(- perp_dx * d + x_ce)
+            # y_start = round(- perp_dy * d + y_ce)
+            # x_finish = round(perp_dx * d + x_ce)
+            # y_finish = round(perp_dy * d + y_ce)
+            x_start = x_ce
+            y_start = y_ce
+            x_finish = round(-perp_dx * d + x_ce)
+            y_finish = round(-perp_dy * d + y_ce)
 
-        # return candidates
+            # candidates = list(bresenham(x_ce, y_ce, cnd_tmp[len(cnd_tmp)-1][0], cnd_tmp[len(cnd_tmp)-1][1]))
+            candidates = list(bresenham(x_start, y_start, x_finish, y_finish))
+            # print("Candidates for:")
+            # print(candidates)
 
-        # go through candidates and check if they can be moved to
-        candidates_reachable = []
-        for candidate in candidates:
-            c = candidate[0]
-            r = candidate[1]
-            if self.in_map_bounds(c, r) and self.can_move_to(c, r):
-                candidates_reachable.append(candidate)
-                # if using central as start
-                break
+            # candidates.reverse()
 
-        print("Candidates reachable:")
-        print(candidates_reachable)
+            # return candidates
 
-        if len(candidates_reachable) == 0:
-            # in case no candidates are on valid positions
-            print("Searching for backup candidates")
-            backup_candidate = candidates[3]
-            x = backup_candidate[0]
-            y = backup_candidate[1]
+            # go through candidates and check if they can be moved to
+            candidates_reachable = []
+            for candidate in candidates:
+                c = candidate[0]
+                r = candidate[1]
+                if self.in_map_bounds(c, r) and self.can_move_to(c, r):
+                    candidates_reachable.append(candidate)
+                    # if using central as start
+                    break
 
-            x_close, y_close = self.nearest_nonzero_to_point(
-                self.accessible_costmap, x, y
-            )
-            candidates_reachable.append((x_close, y_close))
+            print("Candidates reachable:")
             print(candidates_reachable)
 
-        return candidates_reachable
+            if len(candidates_reachable) == 0:
+                # in case no candidates are on valid positions
+                print("Searching for backup candidates")
+                backup_candidate = candidates[3]
+                x = backup_candidate[0]
+                y = backup_candidate[1]
+
+                x_close, y_close = self.nearest_nonzero_to_point(
+                    self.accessible_costmap, x, y
+                )
+                candidates_reachable.append((x_close, y_close))
+                print(candidates_reachable)
+
+            return candidates_reachable
 
     def can_move_to(self, x, y):
-        if self.map_coord_cost(x, y) == 127:
-            # unknown
-            return False
-        elif self.map_coord_cost(x, y) == 99:
-            # not far enough from obstacle
-            return False
-        elif self.map_coord_cost(x, y) == 0:
-            # wall
-            return False
-        elif self.map_coord_cost(x, y) == 255:
-            # empty space
-            return True
-        elif self.map_coord_cost(x, y) > 38:
-            # wall
-            return False
+        cost = self.map_coord_cost(x, y)
 
-        return True
+        if cost == UNKNOWN:
+            # Unknown cell
+            return False
+        elif cost == INFLATED_OBSTACLE:
+            # Not far enough from obstacle
+            return False
+        elif cost == LETHAL_OBSTACLE:
+            # Lethal obstacle (e.g., wall)
+            return False
+        elif cost == FREE_SPACE:
+            # Free space
+            return True
+        elif cost > WALL_THRESHOLD:
+            # Wall or close to wall
+            return False
+        else:
+            print("Unknown cost value:", cost)
+            # You can choose to treat unknown values as obstacles or not:
+            return False  # Treat unknown cost values as obstacles
+            # return True  # Treat unknown cost values as free space
+
+        
+        print("Unknown cost value")
+        print(self.map_coord_cost(x, y))
+
+        return False
 
     def in_map_bounds(self, x, y):
         if (x >= 0) and (y >= 0) and (x < self.size_x) and (y < self.size_y):
@@ -430,12 +465,19 @@ class MapManager:
     def get_face_greet_location(self, x_c, y_c, x_r, y_r, fpose_left, fpose_right):
 
         # convert to map coordinates
+
+        print("Face center: (%s, %s)" % (str(x_c), str(y_c)))
+        print("Robot: (%s, %s)" % (str(x_r), str(y_r)))
+
+        
+
+
         (x_c, y_c) = self.world_to_map_coords(x_c, y_c)  # face center
         (x_r, y_r) = self.world_to_map_coords(x_r, y_r)
 
-        rospy.loginfo(
-            "Robot converted to map coordinates: (%s, %s)" % (str(x_r), str(y_r))
-        )
+        # rospy.loginfo(
+        #     "Robot converted to map coordinates: (%s, %s)" % (str(x_r), str(y_r))
+        # )
 
         candidates = self.get_face_greet_location_candidates_perpendicular(
             x_c, y_c, fpose_left, fpose_right
@@ -463,7 +505,7 @@ class MapManager:
             # wrong data
             rospy.logerr("Invalid map coordinates.")
             return None
-        return self.cost_map[y][x]
+        return self.accessible_costmap[y][x]
 
     def get_inverse_transform(self):
         # https://answers.ros.org/question/229329/what-is-the-right-way-to-inverse-a-transform-in-python/
@@ -506,7 +548,7 @@ class MapManager:
     def world_to_map_coords(self, x, y):
         inverse_transform = self.get_inverse_transform()
 
-        rospy.loginfo("Inverse transform: %s" % str(inverse_transform))
+        #rospy.loginfo("Inverse transform: %s" % str(inverse_transform))
 
         pt = PointStamped()
         pt.point.x = x

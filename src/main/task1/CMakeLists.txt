@@ -16,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(DIRECTORY msg
   FILES
   UniqueFaceCoords.msg
+  DetectedFaces.msg
 )
 
 generate_messages(DEPENDENCIES std_msgs 
