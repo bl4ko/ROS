@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 import threading
-from typing import Tuple
+from typing import Tuple, List
 import cv2
 import numpy as np
 import rospy
@@ -192,7 +192,7 @@ class MapManager:
         with self.map_lock:
             return self.goals_ready
 
-    def get_goals(self):
+    def get_goals(self) -> List[Tuple[float, float]]:
         """Get the list of goals
 
         Returns:

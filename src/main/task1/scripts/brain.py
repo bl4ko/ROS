@@ -8,13 +8,14 @@ to all of the keypoints and do a 360 degree rotation at each of them.
 import math
 import sys
 import threading
+from typing import Tuple
 from map_manager import MapManager
 import rospy
 from task1.msg import DetectedFaces
 import actionlib
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Twist
-from typing import Tuple
+from tf.transformations import quaternion_from_euler
 
 
 class Brain:
@@ -218,6 +219,25 @@ class Brain:
 
         return path
 
+    def orientation_between_points(
+        self, first_goal: Tuple[float, float], second_goal: Tuple[float, float]
+    ) -> Tuple[float, float, float, float]:
+        """
+        Returns the orientation of the turtle bot as a quaternion between two goals.
+
+        Args:
+            first_goal (Tuple[float, float]): The first goal as a tuple (x, y)
+            second_goal (Tuple[float, float]): The second goal as a tuple (x, y)
+
+        Returns:
+            Tuple[float, float, float, float]: quaternion representing the orientation
+        """
+        angle = math.atan2(
+            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
+        )
+        quaternion = quaternion_from_euler(0, 0, angle)
+        return quaternion
+
     def think(self):
         """
         Main logic function for the turtle bot's brain. The turtle bot moves through the keypoints
@@ -230,9 +250,18 @@ class Brain:
 
         detected_faces_count = 0
 
-        for goal in optimized_path:
-            self.move_to_goal(goal[0], goal[1], 0, 0, 0, 1)
+        for i, goal in enumerate(optimized_path):
+            quaternion = (0, 0, 0, 1)
+
+            # Optimisation: Check if this is not the last goal
+            # In that case, adjust the orientation to the next goal
+            if i < len(optimized_path) - 1:
+                next_goal = optimized_path[i + 1]
+                quaternion = self.orientation_between_points(goal, next_goal)
+
+            self.move_to_goal(goal[0], goal[1], *quaternion)
             self.rotate(360)
+
             with self.detected_faces_lock:
                 if len(self.detected_faces) > detected_faces_count:
                     rospy.loginfo("I have detected a face")
