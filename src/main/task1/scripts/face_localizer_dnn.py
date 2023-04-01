@@ -15,8 +15,7 @@ from std_msgs.msg import ColorRGBA
 import message_filters
 from message_filters import ApproximateTimeSynchronizer
 from tf.transformations import quaternion_from_euler
-from task1.msg import UniqueFaceCoords
-from task1.msg import DetectedFaces
+from task1.msg import UniqueFaceCoords, DetectedFaces
 
 
 class DetectedFace:
@@ -54,9 +53,15 @@ class DetectedFace:
 
 
 class DetectedFacesTracker:
+    """
+    This class is used to track the faces detected by the face detector.
+    """
+
     def __init__(self):
         self.faces = []
-        self.grouped_faces_by_distance = []  # list of objects
+        self.grouped_faces_by_distance = (
+            []
+        )  # Each index represents a face group ( ), array of dictionaries
         self.distance_threshold = 0.5  # in meters
         self.detection_threshold = (
             1  # number of detections to consider a face as a valid face
@@ -65,19 +70,24 @@ class DetectedFacesTracker:
         self.map_manager = MapManager()
 
     def add_face(self, face):
+        """
+        Add a face to the list of faces if suitable.
+        """
+        face_x = face.pose.position.x
+        face_y = face.pose.position.y
+        face_pose_left = face.pose_left
+        face_pose_right = face.pose_right
 
-        x_c = face.pose.position.x
-        y_c = face.pose.position.y
-        pose_face_left = face.pose_left
-        pose_face_right = face.pose_right
-
+        # Get the normal vector of the face
         new_face_normal = self.get_face_normal(
-            x_c, y_c, pose_face_left, pose_face_right
+            face_x, face_y, face_pose_left, face_pose_right
         )
 
         # check if the face is close to any of the existing faces and if it is on the same side of the wall
         for i in range(len(self.grouped_faces_by_distance)):
-            avg_pose = self.grouped_faces_by_distance[i]["avg_pose"]
+            avg_pose = self.grouped_faces_by_distance[i][
+                "avg_pose"
+            ]  # Average pose of the face group (x,y) tuple
 
             # we store every normal just in case we need it later
             # we only need to check the first normal because we only add faces that are close to each other
@@ -98,8 +108,8 @@ class DetectedFacesTracker:
                     self.grouped_faces_by_distance[i]["detections"]
                     >= self.detection_history
                 ):
-                    
-                    return # we don't want to add more faces than the detection history
+
+                    return  # we don't want to add more faces than the detection history
 
                     # sort the faces by confidence
                     # remove the oldest face
@@ -119,7 +129,7 @@ class DetectedFacesTracker:
                 return
 
         # if the face is not close to any of the existing faces, add it as a new face
-        #print 
+        # print
         print("new face detected")
         print("face normal: ", new_face_normal)
         print("face pose: ", face.pose)
@@ -160,14 +170,17 @@ class DetectedFacesTracker:
         ]
 
     def get_greet_locations(self):
-        loc = []
+        """
+        Returns greet locations.
+        """
+        locations = []
         for group in self.grouped_faces_by_distance:
             if group["detections"] >= self.detection_threshold:
                 # Compute the location of the greeting based on the average robot pose and average face pose
                 avg_pose = group["avg_pose"]
                 avg_face_greet_location = (0, 0)
                 total_weight = 0
-                
+
                 # Sort the faces by distance
                 for face in group["faces"]:
                     xr = face.xr
@@ -185,7 +198,7 @@ class DetectedFacesTracker:
                         pose_face_left,
                         pose_face_right,
                     )
-                    
+
                     # Weight the greet location based on the confidence and the inverse of the distance
                     weight = confidence / face_distance
                     avg_face_greet_location = (
@@ -200,9 +213,9 @@ class DetectedFacesTracker:
                     avg_face_greet_location[1] / total_weight,
                 )
 
-                loc.append((avg_face_greet_location, group))
+                locations.append((avg_face_greet_location, group))
 
-        return loc
+        return locations
 
     def get_face_normal(self, x_ce, y_ce, fpose_left, fpose_right):
         """
@@ -420,8 +433,6 @@ class FaceLocalizer:
                                 or math.isnan(pose_right.position.x)
                                 or math.isnan(pose_right.position.y)
                                 or math.isnan(pose_right.position.z)
-
-                            
                             )
                         ):
                             # rospy.logerr("Sending face.")
@@ -443,15 +454,12 @@ class FaceLocalizer:
                             )
                             self.detected_faces_tracker.add_face(detectedFace)
 
-            #self.show_markers(self.detected_faces_tracker.get_grouped_faces())
+            # self.show_markers(self.detected_faces_tracker.get_grouped_faces())
             data = self.detected_faces_tracker.get_greet_locations()
 
             coords = []
             for d in data:
                 coords.append(d[0])
-
-            
-
 
             groups = []
             ids = []
@@ -467,14 +475,12 @@ class FaceLocalizer:
                 self.unique_groups = len(groups)
                 self.already_sent_ids = ids
 
-
                 fc_group = groups[i]
                 x = fc_group["avg_pose"].position.x
                 y = fc_group["avg_pose"].position.y
 
                 face_c_x = coords[-1][0]
                 face_c_y = coords[-1][1]
-
 
                 normal_x = fc_group["potential_faces_normals"][0][0]
                 normal_y = fc_group["potential_faces_normals"][0][1]
@@ -485,8 +491,18 @@ class FaceLocalizer:
                 rr_z = q_dest[2]
                 rr_w = q_dest[3]
 
-                unfccoords=self.make_unfcoords_msg(i,
-                    face_c_x, face_c_y, rr_x, rr_y, rr_z, rr_w, normal_x, normal_y, x, y
+                unfccoords = self.make_unfcoords_msg(
+                    i,
+                    face_c_x,
+                    face_c_y,
+                    rr_x,
+                    rr_y,
+                    rr_z,
+                    rr_w,
+                    normal_x,
+                    normal_y,
+                    x,
+                    y,
                 )
                 to_publish.array.append(unfccoords)
 
@@ -563,7 +579,7 @@ class FaceLocalizer:
         self.face_visit_locations_markers_pub.publish(markers)
 
     def make_unfcoords_msg(
-        self,id, x, y, rr_x, rr_y, rr_z, rr_w, normal_x, normal_y, face_c_x, face_c_y
+        self, id, x, y, rr_x, rr_y, rr_z, rr_w, normal_x, normal_y, face_c_x, face_c_y
     ):
         msg = UniqueFaceCoords()
         msg.x_coord = x
@@ -586,11 +602,9 @@ class FaceLocalizer:
         #     % self.unique_groups
         # )
         # rospy.loginfo(msg)
-        #self.coords_publisher.publish(msg)
+        # self.coords_publisher.publish(msg)
 
         return msg
-
-    
 
     def depth_callback(self, data):
         try:

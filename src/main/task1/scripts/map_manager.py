@@ -11,7 +11,7 @@ from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PointStamped, Vector3, Point, Quaternion, TransformStamped
 from visualization_msgs.msg import Marker, MarkerArray
 from tf import transformations as t
-from bresenham import bresenham
+from bresenham import bresenham  # pylint: disable=import-error
 
 
 # This script retrieves the map from the map_server and saves it in a 2D array.
@@ -54,12 +54,59 @@ class MapManager:
 
         self.cost_map_ready = False
 
-    def map_callback(self, data) -> None:
+    def map_callback(self, map_data) -> None:
         """
-        Callback function for the map subscriber. It processes the map data when received.
+        Process the map data to find goals and publish markers
+
+        Args:
+            map_data (OccupancyGrid): Map data to process.
         """
         with self.map_lock:  # Acquire the lock before modifying the map attribute
-            self.map_processing(data)
+            self.size_x = map_data.info.width
+            self.size_y = map_data.info.height
+
+            rospy.loginfo("Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y)))
+
+            if self.size_x < 3 or self.size_y < 3:
+                rospy.loginfo(
+                    "Map size only: x: %s, y: %s. NOT running map to image conversion."
+                    % (str(self.size_x), str(self.size_y))
+                )
+                return
+
+            # Get the map properties from the map topic
+            self.map_resolution = map_data.info.resolution
+            self.map_frame_id = map_data.header.frame_id
+            self.map_transform.transform.translation.x = map_data.info.origin.position.x
+            self.map_transform.transform.translation.y = map_data.info.origin.position.y
+            self.map_transform.transform.translation.z = map_data.info.origin.position.z
+            self.map_transform.transform.rotation = map_data.info.origin.orientation
+
+            # 2D array representing the map
+            self.map = np.array(map_data.data).reshape((self.size_y, self.size_x))
+
+            # Assign correct values to the map (0 = free, 100 = occupied, -1 = unknown)
+            self.map[self.map == -1] = 127
+            self.map[self.map == 0] = 255
+            self.map[self.map == 100] = 0
+
+            # Convert the map to uint8
+            # Remove small obstacles and enlarge free spaces in the map
+            # This makes it safer for the robot to navigate
+            self.map = self.map.astype(np.uint8)
+            kernel = np.ones((3, 3), np.uint8)
+            semi_safe_map = cv2.erode(self.map, kernel, iterations=3)
+            self.map = semi_safe_map
+
+            # Find the skeleton overlay of the map
+            self.skeleton_overlay = self.skeletonize_map()
+
+            # find branch points note the map is flipped
+            self.branch_points = self.find_branch_points()
+
+            # self.visualize_branch_points()
+
+            self.init_goals()
 
     def cost_map_callback(self, map_data) -> None:
         """
@@ -154,58 +201,6 @@ class MapManager:
             return self.goal_points
 
     def map_processing(self, map_data: OccupancyGrid) -> None:
-        """
-        Process the map data to find goals and publish markers
-
-        Args:
-            map_data (OccupancyGrid): Map data to process.
-        """
-
-        self.size_x = map_data.info.width
-        self.size_y = map_data.info.height
-
-        rospy.loginfo("Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y)))
-
-        if self.size_x < 3 or self.size_y < 3:
-            rospy.loginfo(
-                "Map size only: x: %s, y: %s. NOT running map to image conversion."
-                % (str(self.size_x), str(self.size_y))
-            )
-            return
-
-        # Get the map properties from the map topic
-        self.map_resolution = map_data.info.resolution
-        self.map_frame_id = map_data.header.frame_id
-        self.map_transform.transform.translation.x = map_data.info.origin.position.x
-        self.map_transform.transform.translation.y = map_data.info.origin.position.y
-        self.map_transform.transform.translation.z = map_data.info.origin.position.z
-        self.map_transform.transform.rotation = map_data.info.origin.orientation
-
-        # 2D array representing the map
-        self.map = np.array(map_data.data).reshape((self.size_y, self.size_x))
-
-        # Assign correct values to the map (0 = free, 100 = occupied, -1 = unknown)
-        self.map[self.map == -1] = 127
-        self.map[self.map == 0] = 255
-        self.map[self.map == 100] = 0
-
-        # Convert the map to uint8
-        # Remove small obstacles and enlarge free spaces in the map
-        # This makes it safer for the robot to navigate
-        self.map = self.map.astype(np.uint8)
-        kernel = np.ones((3, 3), np.uint8)
-        semi_safe_map = cv2.erode(self.map, kernel, iterations=3)
-        self.map = semi_safe_map
-
-        # Find the skeleton overlay of the map
-        self.skeleton_overlay = self.skeletonize_map()
-
-        # find branch points note the map is flipped
-        self.branch_points = self.find_branch_points()
-
-        # self.visualize_branch_points()
-
-        self.init_goals()
 
     def init_goals(self) -> None:
         goals = []
@@ -356,6 +351,9 @@ class MapManager:
     def get_face_greet_location_candidates_perpendicular(
         self, x_ce, y_ce, fpose_left, fpose_right, d=30
     ):
+        """
+        Get the face greet location candidates perpendicular to the line between the two faces.
+        """
 
         with self.cost_map_lock:  # lock the cost map
 
@@ -459,38 +457,22 @@ class MapManager:
         return c[min_idx], r[min_idx]
 
     def get_face_greet_location(self, x_c, y_c, x_r, y_r, fpose_left, fpose_right):
-
-        # convert to map coordinates
-
-        print("Face center: (%s, %s)" % (str(x_c), str(y_c)))
-        print("Robot: (%s, %s)" % (str(x_r), str(y_r)))
-
-        (x_c, y_c) = self.world_to_map_coords(x_c, y_c)  # face center
+        """
+        Get the face greet location.
+        """
+        # 
+        (x_c, y_c) = self.world_to_map_coords(x_c, y_c)
         (x_r, y_r) = self.world_to_map_coords(x_r, y_r)
-
-        # rospy.loginfo(
-        #     "Robot converted to map coordinates: (%s, %s)" % (str(x_r), str(y_r))
-        # )
 
         candidates = self.get_face_greet_location_candidates_perpendicular(
             x_c, y_c, fpose_left, fpose_right
         )
-        # use line math to get candidates
 
         min_dist = float("inf")
         res_point = None
 
-        # for p in candidates:
-        #     x = p[0]
-        #     y = p[1]
-        #     d = self.dist_euclidean(x, y, x_r, y_r)
-        #     if d < min_dist:
-        #         min_dist = d
-        #         res_point = p
-
         res_point = candidates[0]
 
-        # convert to world coordinates and return res
         return self.map_to_world_coords(res_point[0], res_point[1])
 
     def map_coord_cost(self, x, y):
