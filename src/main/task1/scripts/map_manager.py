@@ -8,7 +8,14 @@ import tf2_geometry_msgs
 from nav_msgs.msg import OccupancyGrid
 from skimage.morphology import skeletonize
 from std_msgs.msg import ColorRGBA
-from geometry_msgs.msg import PointStamped, Vector3, Point, Quaternion, TransformStamped
+from geometry_msgs.msg import (
+    PointStamped,
+    Vector3,
+    Point,
+    Quaternion,
+    TransformStamped,
+    PoseWithCovarianceStamped,
+)
 from visualization_msgs.msg import Marker, MarkerArray
 from tf import transformations as t
 from bresenham import bresenham  # pylint: disable=import-error
@@ -51,7 +58,6 @@ class MapManager:
         self.size_x = None
         self.size_y = None
         self.map_frame_id = None
-
         self.cost_map_ready = False
 
     def map_callback(self, map_data) -> None:
@@ -201,14 +207,35 @@ class MapManager:
         with self.map_lock:
             return self.goal_points
 
+    def get_robot_position(self) -> Tuple[float, float]:
+        """
+        Get the current robot position.
+
+        Returns:
+            Tuple[float, float]: The current robot position (x, y).
+        """
+        pose_msg = rospy.wait_for_message(
+            "/amcl_pose", PoseWithCovarianceStamped, timeout=5.0
+        )
+        robot_position = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
+        return robot_position
+
     def init_goals(self) -> None:
+        """
+        Transforms branch points to world coordinates and sorts them by distance to the robot,
+        and then sets them as the goals.
+        """
         goals = []
-        for i in range(len(self.branch_points)):
-            goals.append(
-                self.map_to_world_coords(
-                    self.branch_points[i][0], self.branch_points[i][1]
-                )
-            )
+        for _, branch_point in enumerate(self.branch_points):
+            goals.append(self.map_to_world_coords(branch_point[0], branch_point[1]))
+
+        # Sort goals by distance to the robot
+        robot_x, robot_y = self.get_robot_position()
+
+        # Sort goals by distance to the robot
+        goals.sort(
+            key=lambda goal: ((goal[0] - robot_x) ** 2 + (goal[1] - robot_y) ** 2)
+        )
 
         self.goal_points = goals
         self.publish_markers_of_goals(goals)
