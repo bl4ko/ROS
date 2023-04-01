@@ -65,7 +65,9 @@ class MapManager:
             self.size_x = map_data.info.width
             self.size_y = map_data.info.height
 
-            rospy.loginfo("Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y)))
+            rospy.loginfo(
+                "Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y))
+            )
 
             if self.size_x < 3 or self.size_y < 3:
                 rospy.loginfo(
@@ -114,7 +116,6 @@ class MapManager:
         """
 
         with self.cost_map_lock:  # Acquire the lock before modifying the map attribute
-
             size_x = map_data.info.width
             size_y = map_data.info.height
 
@@ -199,8 +200,6 @@ class MapManager:
         """
         with self.map_lock:
             return self.goal_points
-
-    def map_processing(self, map_data: OccupancyGrid) -> None:
 
     def init_goals(self) -> None:
         goals = []
@@ -356,7 +355,6 @@ class MapManager:
         """
 
         with self.cost_map_lock:  # lock the cost map
-
             x_left = fpose_left.position.x
             y_left = fpose_left.position.y
             x_right = fpose_right.position.x
@@ -460,7 +458,7 @@ class MapManager:
         """
         Get the face greet location.
         """
-        # 
+        #
         (x_c, y_c) = self.world_to_map_coords(x_c, y_c)
         (x_r, y_r) = self.world_to_map_coords(x_r, y_r)
 
@@ -545,7 +543,6 @@ def test():
     rate = rospy.Rate(1)  # 1 Hz
     while not rospy.is_shutdown():
         if ps.is_ready():
-
             goals = ps.get_goals()
             if goals is not None and len(goals) > 0:
                 ps.publish_markers_of_goals(goals)

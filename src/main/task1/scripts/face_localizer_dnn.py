@@ -108,7 +108,6 @@ class DetectedFacesTracker:
                     self.grouped_faces_by_distance[i]["detections"]
                     >= self.detection_history
                 ):
-
                     return  # we don't want to add more faces than the detection history
 
                     # sort the faces by confidence
@@ -491,7 +490,7 @@ class FaceLocalizer:
                 rr_z = q_dest[2]
                 rr_w = q_dest[3]
 
-                unfccoords = self.make_unfcoords_msg(
+                unfccoords = self.make_unique_face_coords_msg(
                     i,
                     face_c_x,
                     face_c_y,
@@ -527,7 +526,6 @@ class FaceLocalizer:
         return q
 
     def show_markers(self, grouped_faces):
-
         markers = MarkerArray()
         marker_num = 0
 
@@ -553,7 +551,6 @@ class FaceLocalizer:
         self.markers_pub.publish(markers)
 
     def show_markers_coords(self, coords):
-
         markers = MarkerArray()
         marker_num = 0
 
@@ -578,32 +575,51 @@ class FaceLocalizer:
 
         self.face_visit_locations_markers_pub.publish(markers)
 
-    def make_unfcoords_msg(
-        self, id, x, y, rr_x, rr_y, rr_z, rr_w, normal_x, normal_y, face_c_x, face_c_y
+    def make_unique_face_coords_msg(
+        self,
+        face_id: int,
+        x_coord: float,
+        y_coord: float,
+        rr_x: float,
+        rr_y: float,
+        rr_z: float,
+        rr_w: float,
+        normal_x: float,
+        normal_y: float,
+        face_c_x: float,
+        face_c_y: float,
     ):
+        """
+        Creates a message of type UniqueFaceCoords.
+
+        Args:
+            face_id (int): face id
+            x_coord (float): x coordinate of the face
+            y_coord (float): y coordinate of the face
+            rr_x (float): The x component of the quaternion representing the face's rotation.
+            rr_y (float): The y component of the quaternion representing the face's rotation.
+            rr_z (float): The z component of the quaternion representing the face's rotation.
+            rr_w (float): The w component of the quaternion representing the face's rotation.
+            normal_x (float): The x component of the normal face's normal vector.
+            normal_y (float): The y component of the normal face's normal vector.
+            face_c_x (float): The x coordinate of the face's center.
+            face_c_y (float): The y coordinate of the face's center.
+
+        Returns:
+            UniqueFaceCoords: A UniqueFaceCoords message with the given parameters.
+        """
         msg = UniqueFaceCoords()
-        msg.x_coord = x
-        msg.y_coord = y
+        msg.x_coord = x_coord
+        msg.y_coord = y_coord
         msg.rr_x = rr_x
         msg.rr_y = rr_y
         msg.rr_z = rr_z
         msg.rr_w = rr_w
-
-        msg.face_id = id
-
+        msg.face_id = face_id
         msg.normal_x = normal_x
         msg.normal_y = normal_y
-
         msg.face_c_x = face_c_x
         msg.face_c_y = face_c_y
-
-        # rospy.loginfo(
-        #     "New unique face coords published on topic with id: %d."
-        #     % self.unique_groups
-        # )
-        # rospy.loginfo(msg)
-        # self.coords_publisher.publish(msg)
-
         return msg
 
     def depth_callback(self, data):

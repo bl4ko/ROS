@@ -54,4 +54,10 @@
 
   <!-- Rviz -->
   <node name="rviz" pkg="rviz" type="rviz" args="-d $(find turtlebot_rviz_launchers)/rviz/navigation.rviz"/>
+
+  <node pkg="rviz" type="rviz" name="rviz">
+    <remap from="/face_markers" to="/visualization_marker" />
+    <remap from="/goal_markers" to="/move_base_simple/goal" />
+  </node>
+
 </launch>
