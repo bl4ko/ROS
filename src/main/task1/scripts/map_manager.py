@@ -15,11 +15,15 @@ from geometry_msgs.msg import (
     Quaternion,
     TransformStamped,
     PoseWithCovarianceStamped,
+    
 )
 from visualization_msgs.msg import Marker, MarkerArray
 from tf import transformations as t
 from bresenham import bresenham  # pylint: disable=import-error
 
+from cv_bridge import CvBridge, CvBridgeError
+from sensor_msgs.msg import Image
+import matplotlib.pyplot as plt
 
 # This script retrieves the map from the map_server and saves it in a 2D array.
 # It also uses ekeletonize to get most important points to visit in the map.
@@ -59,6 +63,10 @@ class MapManager:
         self.size_y = None
         self.map_frame_id = None
         self.cost_map_ready = False
+        self.bridge = (
+            CvBridge()
+        )  
+        self.image_pub = rospy.Publisher("/map_manager_info",Image,queue_size=10)
 
     def map_callback(self, map_data) -> None:
         """
@@ -112,9 +120,67 @@ class MapManager:
             # find branch points note the map is flipped
             self.branch_points = self.find_branch_points()
 
-            # self.visualize_branch_points()
+            #self.visualize_branch_points()
+
+            #self.visualize(self.map, self.skeleton_overlay, self.branch_points)
 
             self.init_goals()
+
+    def visualize(self, map, skeleton_overlay, branch_points):
+        """
+        Visualize the map, skeleton overlay and branch points in rviz.
+        """
+        # create a blank image
+        img = np.zeros((self.size_y, self.size_x), np.uint8)
+        # add each with a certain weight
+        img = cv2.addWeighted(map, 0.5, skeleton_overlay, 0.38, 0)
+
+        # conver branch points (x,y) to image where x y is white
+
+        bp_img = np.zeros((self.size_y, self.size_x), np.uint8)
+        for point in branch_points:
+            bp_img[point[1], point[0]] = 255
+
+        img = cv2.addWeighted(img, 0.5, bp_img, 0.77, 0)
+        # convert to ros image
+
+        # for each point in branch points add a circle around it
+
+        circles = np.zeros((self.size_y, self.size_x), np.uint8)
+        size = 1.6 #meters
+        size = int(size/self.map_resolution)
+        for point in branch_points:
+            cv2.circle(circles, (point[0], point[1]), size, (255, 255, 255), -1)
+        
+
+        img = cv2.addWeighted(img, 0.5, circles, 0.13, 0)
+
+        #flip image
+        img = cv2.flip(img, 0)
+
+        #zoom into center for better visualization
+        zoomed = img[160+20:325, 160+20:325]
+        img = zoomed
+
+
+
+
+
+        #save image
+        cv2.imwrite("map.png", img)
+
+        #plot
+        plt.imshow(img, cmap="gray")
+        plt.show()
+
+
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        ros_img = self.bridge.cv2_to_imgmsg(img, "rgb8")
+        # publish every second
+        timer = threading.Timer(1, self.image_pub.publish, [ros_img])
+        timer.start()
+
+
 
     def cost_map_callback(self, map_data) -> None:
         """
@@ -373,6 +439,7 @@ class MapManager:
 
         cv2.imshow("overlayed branch points", overlayed_bp)
         cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     def get_face_greet_location_candidates_perpendicular(
         self, x_ce, y_ce, fpose_left, fpose_right, d=30
@@ -425,8 +492,8 @@ class MapManager:
                     # if using central as start
                     break
 
-            print("Candidates reachable:")
-            print(candidates_reachable)
+            # print("Candidates reachable:")
+            # print(candidates_reachable)
 
             if len(candidates_reachable) == 0:
                 # in case no candidates are on valid positions
@@ -462,7 +529,7 @@ class MapManager:
             # Wall or close to wall
             return False
         else:
-            print("Unknown cost value:", cost)
+            # print("Unknown cost value:", cost)
             # You can choose to treat unknown values as obstacles or not:
             return False  # Treat unknown cost values as obstacles
             # return True  # Treat unknown cost values as free space

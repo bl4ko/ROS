@@ -245,45 +245,57 @@ class Brain:
         at each keypoint. If any new faces are detected during the rotation, the turtle bot moves to
         the face location and then continues to the next keypoint.
         """
-        goals = self.map_manager.get_goals()
-        optimized_path = self.nearest_neighbor_path(goals, goals[0])
 
-        detected_faces_count = 0
+        while not rospy.is_shutdown():
 
-        for i, goal in enumerate(optimized_path):
-            quaternion = (0, 0, 0, 1)
 
-            # Optimisation: Check if this is not the last goal
-            # In that case, adjust the orientation to the next goal
-            if i < len(optimized_path) - 1:
-                next_goal = optimized_path[i + 1]
-                quaternion = self.orientation_between_points(goal, next_goal)
 
-            self.move_to_goal(goal[0], goal[1], *quaternion)
-            self.rotate(360)
+            goals = self.map_manager.get_goals()
+            optimized_path = self.nearest_neighbor_path(goals, goals[0])
 
-            with self.detected_faces_lock:
-                if len(self.detected_faces) > detected_faces_count:
-                    rospy.loginfo("I have detected a face")
+            detected_faces_count = 0
 
-                    new_faces = self.detected_faces[detected_faces_count:]
-                    print(new_faces)
-                    for new_face in new_faces:
-                        self.move_to_goal(
-                            new_face.x_coord,
-                            new_face.y_coord,
-                            new_face.rr_x,
-                            new_face.rr_y,
-                            new_face.rr_z,
-                            new_face.rr_w,
-                        )
+            for i, goal in enumerate(optimized_path):
+                quaternion = (0, 0, 0, 1)
 
-                        # TODO: stop for 2 seconds
-                        # Sound or something to greet the face can be aded
-                        rospy.sleep(2)
-                        rospy.loginfo("I have reached the face")
+                # Optimisation: Check if this is not the last goal
+                # In that case, adjust the orientation to the next goal
+                if i < len(optimized_path) - 1:
+                    next_goal = optimized_path[i + 1]
+                    quaternion = self.orientation_between_points(goal, next_goal)
 
-                    detected_faces_count = len(self.detected_faces)
+                self.move_to_goal(goal[0], goal[1], *quaternion)
+                self.rotate(360)
+
+                with self.detected_faces_lock:
+                    if len(self.detected_faces) > detected_faces_count:
+                        rospy.loginfo("I have detected a face")
+
+                        new_faces = self.detected_faces[detected_faces_count:]
+                        print(new_faces)
+                        print(len(new_faces))
+                        for new_face in new_faces:
+                            rospy.loginfo(f"Moving to face id: {new_face.face_id} at {new_face.x_coord}, {new_face.y_coord}")
+                            self.move_to_goal(
+                                new_face.x_coord,
+                                new_face.y_coord,
+                                new_face.rr_x,
+                                new_face.rr_y,
+                                new_face.rr_z,
+                                new_face.rr_w,
+                            )
+
+                            # TODO: stop for 2 seconds
+                            # Sound or something to greet the face can be aded
+                            rospy.loginfo(f"Greeting face id: {new_face.face_id}")
+                            rospy.sleep(2)
+                            rospy.loginfo(f"Done greeting face id: {new_face.face_id}")
+
+                        detected_faces_count = len(self.detected_faces)
+
+            rospy.loginfo("I have finished my task")
+
+            
 
 
 if __name__ == "__main__":

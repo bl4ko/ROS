@@ -66,6 +66,7 @@ class DetectedFacesTracker:
             1  # number of detections to consider a face as a valid face
         )
         self.detection_history = 50  # number of detections to keep in the history
+        self.max_face_distance = 1.6
         self.map_manager = MapManager()
 
     def add_face(self, face):
@@ -79,17 +80,23 @@ class DetectedFacesTracker:
             x_c, y_c, pose_face_left, pose_face_right
         )
 
+        #check if face is in max_face_distance range
+        if face.face_distance > self.max_face_distance:
+            rospy.loginfo(f"Face is too far away: {face.face_distance} not adding it")
+            return
+        
+
         # check if the face is close to any of the existing faces and if it is on the same side of the wall
         for i in range(len(self.grouped_faces_by_distance)):
             avg_pose = self.grouped_faces_by_distance[i]["avg_pose"]
 
             # we store every normal just in case we need it later
             # we only need to check the first normal because we only add faces that are close to each other
-            first_face_in_group_normal = self.grouped_faces_by_distance[i][
-                "potential_faces_normals"
-            ][0]
+            # first_face_in_group_normal = self.grouped_faces_by_distance[i][
+            #     "potential_faces_normals"
+            # ][0]
 
-            n1, n2 = first_face_in_group_normal[0], first_face_in_group_normal[1]
+            n1, n2 = self.grouped_faces_by_distance[i]["avg_face_normal"][0], self.grouped_faces_by_distance[i]["avg_face_normal"][1]
             same_side = self.same_side_normal(
                 new_face_normal[0], new_face_normal[1], n1, n2
             )
@@ -120,6 +127,9 @@ class DetectedFacesTracker:
                 self.grouped_faces_by_distance[i]["potential_faces_normals"].append(
                     new_face_normal
                 )
+                self.grouped_faces_by_distance[i]["avg_face_normal"] = np.mean(
+                    self.grouped_faces_by_distance[i]["potential_faces_normals"], axis=0
+                )
                 return
 
         # if the face is not close to any of the existing faces, add it as a new face
@@ -133,6 +143,7 @@ class DetectedFacesTracker:
                 "avg_pose": face.pose,
                 "detections": 1,
                 "potential_faces_normals": [new_face_normal],
+                "avg_face_normal": new_face_normal,
             }
         )
 
@@ -334,11 +345,10 @@ class FaceLocalizer:
                 print(e)
             self.dims = rgb_image.shape
 
-            
-
+            close_range_detection = False
             # Use MediaPipe to find faces
             with mp.solutions.face_detection.FaceDetection(
-                model_selection=0, min_detection_confidence=0.5
+                model_selection=0, min_detection_confidence=0.7
             ) as face_detection:
                 image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
                 image.flags.writeable = False
@@ -447,6 +457,8 @@ class FaceLocalizer:
                                         or math.isnan(pose_right.position.z)
                                     )
                                 ):
+
+                                    close_range_detection = True
                                     # rospy.logerr("Sending face.")
                                     detectedFace = DetectedFace(
                                         face_region,
@@ -466,61 +478,203 @@ class FaceLocalizer:
                                     )
                                     self.detected_faces_tracker.add_face(detectedFace)
 
+            if close_range_detection == False:
+                # use long range detection
+                with mp.solutions.face_detection.FaceDetection(
+                    model_selection=1, min_detection_confidence=0.7 #long range
+                ) as face_detection:
+                    image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
+                    image.flags.writeable = False
+                    results = face_detection.process(image)
+                    image.flags.writeable = True
+                    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+                    if results.detections:
+
+                        # only detect one face
+
+                        for detection in results.detections:
+                            confidence = detection.score[0]  # Extract confidence score
+                            if confidence > 0.6:
+
+                                print("found long range face")
+
+                                bboxC = detection.location_data.relative_bounding_box
+                                ih, iw, _ = image.shape
+                                x, y, w, h = (
+                                    int(bboxC.xmin * iw),
+                                    int(bboxC.ymin * ih),
+                                    int(bboxC.width * iw),
+                                    int(bboxC.height * ih),
+                                )
+
+                                x1, y1, x2, y2 = x, y, x + w, y + h
+                                face_region = rgb_image[y1:y2, x1:x2]
+                                face_distance = float(
+                                    np.nanmean(depth_image[y1:y2, x1:x2])
+                                )
+                                print("Distance to face", face_distance)
+                                depth_time = self.latest_depth_image_msg.header.stamp
+
+                                # Continue with the rest of the code
+
+                                try:
+                                    base_pos_transform = self.tf_buf.lookup_transform(
+                                        "map", "base_link", depth_time
+                                    )
+                                    xr = base_pos_transform.transform.translation.x
+                                    yr = base_pos_transform.transform.translation.y
+                                    zr = base_pos_transform.transform.translation.z
+
+                                    # get robot rotation  it is determining the position and orientation
+                                    #  of the robot's base (i.e., the robot's chassis)
+                                    # relative to a global reference frame, which is typically
+                                    # referred to as the map frame in ROS-based robotic systems.
+                                    rr_x = base_pos_transform.transform.rotation.x
+                                    rr_y = base_pos_transform.transform.rotation.y
+                                    rr_z = base_pos_transform.transform.rotation.z
+                                    rr_w = base_pos_transform.transform.rotation.w
+                                    rospy.loginfo(
+                                        "x: %s, y: %s, z: %s"
+                                        % (str(xr), str(yr), str(zr))
+                                    )
+                                except Exception as e:
+                                    rospy.logerr(
+                                        "Error in base coords lookup: %s" % (str(e))
+                                    )
+                                    return
+
+                                pose = self.get_pose(
+                                    (x1, x2, y1, y2), face_distance, depth_time
+                                )
+                                if pose is not None:
+                                    x_ce = int(round((x1 + x2) / 2))
+                                    print("center: " + str(x_ce))
+                                    face_distance_left = float(
+                                        np.nanmean(depth_image[y1:y2, x1 : (x1 + 1)])
+                                    )
+                                    pose_left = self.get_pose(
+                                        (x1, x1, y1, y1), face_distance_left, depth_time
+                                    )
+
+                                    face_distance_right = float(
+                                        np.nanmean(depth_image[y1:y2, (x2 - 1) : x2])
+                                    )
+                                    pose_right = self.get_pose(
+                                        (x2, x2, y1, y1),
+                                        face_distance_right,
+                                        depth_time,
+                                    )
+
+                                    xpl = pose_left.position.x
+                                    ypl = pose_left.position.y
+                                    zpl = pose_left.position.z
+
+                                    xpr = pose_right.position.x
+                                    ypr = pose_right.position.y
+                                    zpr = pose_right.position.z
+
+                                    ### check if detection is a real face
+                                    if (
+                                        (pose is not None)
+                                        and (pose_left is not None)
+                                        and (pose_right is not None)
+                                        and not (
+                                            math.isnan(xpl)
+                                            or math.isnan(ypl)
+                                            or math.isnan(zpl)
+                                            or math.isnan(xpr)
+                                            or math.isnan(ypr)
+                                            or math.isnan(zpr)
+                                            or math.isnan(pose.position.x)
+                                            or math.isnan(pose.position.y)
+                                            or math.isnan(pose.position.z)
+                                            or math.isnan(pose_left.position.x)
+                                            or math.isnan(pose_left.position.y)
+                                            or math.isnan(pose_left.position.z)
+                                            or math.isnan(pose_right.position.x)
+                                            or math.isnan(pose_right.position.y)
+                                            or math.isnan(pose_right.position.z)
+                                        )
+                                    ):
+
+                                        close_range_detection = True
+                                        # rospy.logerr("Sending face.")
+                                        detectedFace = DetectedFace(
+                                            face_region,
+                                            face_distance,
+                                            depth_time,
+                                            "unknown",
+                                            pose,
+                                            confidence,
+                                            pose_left,
+                                            pose_right,
+                                            xr,
+                                            yr,
+                                            rr_x,
+                                            rr_y,
+                                            rr_z,
+                                            rr_w,
+                                        )
+                                        self.detected_faces_tracker.add_face(
+                                            detectedFace
+                                        )
+
                 # self.show_markers(self.detected_faces_tracker.get_grouped_faces())
-                data = self.detected_faces_tracker.get_greet_locations()
+            data = self.detected_faces_tracker.get_greet_locations()
 
-                coords = []
-                for d in data:
-                    coords.append(d[0])
+            coords = []
+            for d in data:
+                coords.append(d[0])
 
-                groups = []
-                ids = []
-                i = 0
-                for d in data:
-                    groups.append(d[1])
-                    ids.append(i)
-                    i += 1
+            groups = []
+            ids = []
+            i = 0
+            for d in data:
+                groups.append(d[1])
+                ids.append(i)
+                i += 1
 
-                to_publish = DetectedFaces()
+            to_publish = DetectedFaces()
 
-                for i in range(len(groups)):
-                    self.unique_groups = len(groups)
-                    self.already_sent_ids = ids
+            for i in range(len(groups)):
+                self.unique_groups = len(groups)
+                self.already_sent_ids = ids
 
-                    fc_group = groups[i]
-                    x = fc_group["avg_pose"].position.x
-                    y = fc_group["avg_pose"].position.y
+                fc_group = groups[i]
+                x = fc_group["avg_pose"].position.x
+                y = fc_group["avg_pose"].position.y
 
-                    face_c_x = coords[-1][0]
-                    face_c_y = coords[-1][1]
+                face_c_x = coords[i][0]
+                face_c_y = coords[i][1]
 
-                    normal_x = fc_group["potential_faces_normals"][0][0]
-                    normal_y = fc_group["potential_faces_normals"][0][1]
+                normal_x = fc_group["potential_faces_normals"][0][0]
+                normal_y = fc_group["potential_faces_normals"][0][1]
 
-                    q_dest = self.quaternion_for_face_greet(face_c_x, face_c_y, x, y)
-                    rr_x = q_dest[0]
-                    rr_y = q_dest[1]
-                    rr_z = q_dest[2]
-                    rr_w = q_dest[3]
+                q_dest = self.quaternion_for_face_greet(face_c_x, face_c_y, x, y)
+                rr_x = q_dest[0]
+                rr_y = q_dest[1]
+                rr_z = q_dest[2]
+                rr_w = q_dest[3]
 
-                    unfccoords = self.make_unfcoords_msg(
-                        i,
-                        face_c_x,
-                        face_c_y,
-                        rr_x,
-                        rr_y,
-                        rr_z,
-                        rr_w,
-                        normal_x,
-                        normal_y,
-                        x,
-                        y,
-                    )
-                    to_publish.array.append(unfccoords)
+                unfccoords = self.make_unfcoords_msg(
+                    i,
+                    face_c_x,
+                    face_c_y,
+                    rr_x,
+                    rr_y,
+                    rr_z,
+                    rr_w,
+                    normal_x,
+                    normal_y,
+                    x,
+                    y,
+                )
+                to_publish.array.append(unfccoords)
 
-                self.detected_faces_publisher.publish(to_publish)
-                self.show_markers_coords(coords)
-                self.show_markers(groups)
+            self.detected_faces_publisher.publish(to_publish)
+            self.show_markers_coords(coords)
+            self.show_markers(groups)
 
     def quaternion_for_face_greet(self, x1, y1, x2, y2):
         v1 = np.array([x2, y2, 0]) - np.array([x1, y1, 0])

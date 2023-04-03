@@ -91,11 +91,11 @@ class DetectedFacesTracker:
 
             # we store every normal just in case we need it later
             # we only need to check the first normal because we only add faces that are close to each other
-            first_face_in_group_normal = self.grouped_faces_by_distance[i][
-                "potential_faces_normals"
-            ][0]
+            # first_face_in_group_normal = self.grouped_faces_by_distance[i][
+            #     "potential_faces_normals"
+            # ][0]
 
-            n1, n2 = first_face_in_group_normal[0], first_face_in_group_normal[1]
+            n1, n2 = self.grouped_faces_by_distance[i]["avg_face_normal"][0], self.grouped_faces_by_distance[i]["avg_face_normal"][1]
             same_side = self.same_side_normal(
                 new_face_normal[0], new_face_normal[1], n1, n2
             )
@@ -125,6 +125,10 @@ class DetectedFacesTracker:
                 self.grouped_faces_by_distance[i]["potential_faces_normals"].append(
                     new_face_normal
                 )
+                self.grouped_faces_by_distance[i]["avg_face_normal"] = np.mean(
+                    self.grouped_faces_by_distance[i]["potential_faces_normals"], axis=0
+                )
+
                 return
 
         # if the face is not close to any of the existing faces, add it as a new face
@@ -138,6 +142,7 @@ class DetectedFacesTracker:
                 "avg_pose": face.pose,
                 "detections": 1,
                 "potential_faces_normals": [new_face_normal],
+                "avg_face_normal": new_face_normal,
             }
         )
 
@@ -478,8 +483,8 @@ class FaceLocalizer:
                 x = fc_group["avg_pose"].position.x
                 y = fc_group["avg_pose"].position.y
 
-                face_c_x = coords[-1][0]
-                face_c_y = coords[-1][1]
+                face_c_x = coords[i][0]
+                face_c_y = coords[i][1]
 
                 normal_x = fc_group["potential_faces_normals"][0][0]
                 normal_y = fc_group["potential_faces_normals"][0][1]
