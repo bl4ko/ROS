@@ -15,7 +15,6 @@ from geometry_msgs.msg import (
     Quaternion,
     TransformStamped,
     PoseWithCovarianceStamped,
-    
 )
 from visualization_msgs.msg import Marker, MarkerArray
 from tf import transformations as t
@@ -24,7 +23,7 @@ from bresenham import bresenham  # pylint: disable=import-error
 from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 import matplotlib.pyplot as plt
-
+import math
 # This script retrieves the map from the map_server and saves it in a 2D array.
 # It also uses ekeletonize to get most important points to visit in the map.
 # The points to visit are published as markers in rviz.
@@ -63,10 +62,8 @@ class MapManager:
         self.size_y = None
         self.map_frame_id = None
         self.cost_map_ready = False
-        self.bridge = (
-            CvBridge()
-        )  
-        self.image_pub = rospy.Publisher("/map_manager_info",Image,queue_size=10)
+        self.bridge = CvBridge()
+        self.image_pub = rospy.Publisher("/map_manager_info", Image, queue_size=10)
 
     def map_callback(self, map_data) -> None:
         """
@@ -111,7 +108,7 @@ class MapManager:
             # This makes it safer for the robot to navigate
             self.map = self.map.astype(np.uint8)
             kernel = np.ones((3, 3), np.uint8)
-            semi_safe_map = cv2.erode(self.map, kernel, iterations=3)
+            semi_safe_map = cv2.erode(self.map, kernel, iterations=4)
             self.map = semi_safe_map
 
             # Find the skeleton overlay of the map
@@ -120,11 +117,137 @@ class MapManager:
             # find branch points note the map is flipped
             self.branch_points = self.find_branch_points()
 
-            #self.visualize_branch_points()
+            self.branch_points = self.filter_branch_points()
 
-            #self.visualize(self.map, self.skeleton_overlay, self.branch_points)
+            # self.visualize_branch_points()
+
+            self.visualize(self.map, self.skeleton_overlay, self.branch_points)
 
             self.init_goals()
+
+    def distance(self, point1, point2):
+        return math.sqrt((point1[0]-point2[0])**2+(point1[1]-point2[1])**2)
+
+    def filter_branch_points(self):
+        """
+        Filter out branch points that are too close to each other.
+        """
+        filtered_branch_points = []
+        for point in self.branch_points:
+
+            #get closest point
+            closest_point = None
+            closest_distance = 1000000
+            for filtered_point in filtered_branch_points:
+                distance = self.distance(point,filtered_point)
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_point = filtered_point
+
+            #TODO
+
+            #remove if there is a clear path between the two points
+            to_meters = closest_distance * self.map_resolution
+            in_corner = self.is_in_proximity_of_black_pixel(point,0.3)
+            print(f"{point} - Closest point: {closest_point}, distance: {to_meters} m, in corner: {in_corner}")
+            if closest_point is not None and to_meters < 0.4:
+                print("Removing point: ", point)
+                continue
+
+            
+            # #check that the point is not too close to black pixels
+            # if self.is_in_proximity_of_black_pixel(point,0.7):
+            #     continue
+
+            filtered_branch_points.append(point)
+            print("Added point: ", point)
+
+
+
+        #filter
+
+
+        return filtered_branch_points
+
+    def bresenham_line(self, x0, y0, x1, y1):
+        points = []
+        dx, dy = abs(x1 - x0), abs(y1 - y0)
+        sx, sy = 1 if x0 < x1 else -1, 1 if y0 < y1 else -1
+        err = dx - dy
+
+        while True:
+            points.append((x0, y0))
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x0 += sx
+            if e2 < dx:
+                err += dx
+                y0 += sy
+
+        return points
+
+    def has_clear_path(self, point1, point2):
+        x0, y0 = point1
+        x1, y1 = point2
+
+        points = self.bresenham_line(x0, y0, x1, y1)
+
+        for point in points:
+            x, y = point
+            pixel_value = self.map[x, y]
+            if pixel_value == 0:
+                return False
+
+        return True
+
+    def is_in_proximity_of_black_pixel(self, point, proximity=10):
+        """
+        Check if a point is in proximity of a black pixel.
+
+        The proximity is in meters.
+
+        """
+        
+        proximity = int(proximity / self.map_resolution)
+        x, y = point
+        rows, cols = self.map.shape
+
+        for dx in range(-proximity, proximity + 1):
+            for dy in range(-proximity, proximity + 1):
+                if dx == 0 and dy == 0:
+                    continue
+
+                new_x, new_y = x + dx, y + dy
+
+                if 0 <= new_x < rows and 0 <= new_y < cols:
+                    pixel_value = self.map[new_x, new_y]
+
+                    if pixel_value == 0:
+                        return True
+
+        return False
+
+    def is_close_to_other(self, point, other_points, distance_threshold=0.7):
+        """
+        Check if a point is close to any other point.
+
+        The distance threshold is in meters.
+
+        """
+
+        distance_threshold = int(distance_threshold / self.map_resolution)
+
+        for other_point in other_points:
+            distance = np.linalg.norm(np.array(point) - np.array(other_point))
+            if distance <= distance_threshold and self.has_clear_path(
+                point, other_point
+            ):
+                return True
+
+        return False
 
     def visualize(self, map, skeleton_overlay, branch_points):
         """
@@ -147,40 +270,36 @@ class MapManager:
         # for each point in branch points add a circle around it
 
         circles = np.zeros((self.size_y, self.size_x), np.uint8)
-        size = 1.6 #meters
-        size = int(size/self.map_resolution)
+        size = 1.6  # meters
+        size = int(size / self.map_resolution)
         for point in branch_points:
             cv2.circle(circles, (point[0], point[1]), size, (255, 255, 255), -1)
-        
 
         img = cv2.addWeighted(img, 0.5, circles, 0.13, 0)
 
-        #flip image
+        # flip image
         img = cv2.flip(img, 0)
 
-        #zoom into center for better visualization
-        zoomed = img[160+20:325, 160+20:325]
+        # zoom into center for better visualization
+        zoomed = img[160 + 20 : 325, 160 + 20 : 325]
         img = zoomed
 
-
-
-
-
-        #save image
+        # save image
         cv2.imwrite("map.png", img)
 
-        #plot
+        # plot
         plt.imshow(img, cmap="gray")
         plt.show()
 
+        # wait for key press to continue
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         ros_img = self.bridge.cv2_to_imgmsg(img, "rgb8")
         # publish every second
         timer = threading.Timer(1, self.image_pub.publish, [ros_img])
         timer.start()
-
-
 
     def cost_map_callback(self, map_data) -> None:
         """
@@ -396,13 +515,18 @@ class MapManager:
         skeleton_copy = self.skeleton_overlay.copy()
 
         # Apply the Harris corner detector to find corners in the image
-        harris_corners = cv2.cornerHarris(skeleton_copy, blockSize=9, ksize=5, k=0.04)
+        # You can decrease the k value and/or increase blockSize to get more corners
+        harris_corners = cv2.cornerHarris(skeleton_copy, blockSize=3, ksize=3, k=0.025)
 
         # Dilate the result to make the corners more visible
         harris_corners_dilated = cv2.dilate(harris_corners, None)
 
+        # save the dilated image
+        cv2.imwrite("harris_corners_dilated.png", harris_corners_dilated)
+
         # Apply thresholding to identify the optimal corners
-        threshold_value = 0.32 * harris_corners_dilated.max()
+        # Decrease the threshold factor to detect more corners (e.g., from 0.32 to 0.2)
+        threshold_value = 0.12 * harris_corners_dilated.max()
         threshold_image = cv2.threshold(
             harris_corners_dilated, threshold_value, 255, 0
         )[1]
@@ -423,7 +547,6 @@ class MapManager:
         branch_points = [
             (int(corner[0]), int(corner[1])) for corner in refined_corners[1:]
         ]
-
         return branch_points
 
     def visualize_branch_points(self) -> None:
