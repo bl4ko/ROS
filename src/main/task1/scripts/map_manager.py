@@ -4,6 +4,7 @@ from typing import Tuple, List
 import cv2
 import numpy as np
 import rospy
+from matplotlib import pyplot as plt
 import tf2_geometry_msgs
 from nav_msgs.msg import OccupancyGrid
 from skimage.morphology import skeletonize
@@ -19,11 +20,10 @@ from geometry_msgs.msg import (
 from visualization_msgs.msg import Marker, MarkerArray
 from tf import transformations as t
 from bresenham import bresenham  # pylint: disable=import-error
-
-from cv_bridge import CvBridge, CvBridgeError
+from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
-import matplotlib.pyplot as plt
 import math
+
 # This script retrieves the map from the map_server and saves it in a 2D array.
 # It also uses ekeletonize to get most important points to visit in the map.
 # The points to visit are published as markers in rviz.
@@ -51,9 +51,7 @@ class MapManager:
         # )
         self.map_lock = threading.Lock()  # Add a lock for the map attribute
         self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
-        self.marker_publisher = rospy.Publisher(
-            "goal_markers", MarkerArray, queue_size=100
-        )
+        self.marker_publisher = rospy.Publisher("goal_markers", MarkerArray, queue_size=100)
         self.goals_ready = False
         self.goal_points = []
         self.map_transform = TransformStamped()
@@ -65,9 +63,7 @@ class MapManager:
         self.bridge = CvBridge()
         self.image_pub = rospy.Publisher("/map_manager_info", Image, queue_size=10)
 
-
-
-        #wait for messages
+        # wait for messages
         rospy.loginfo("Waiting for map and cost map messages...")
         map_msg = rospy.wait_for_message("/map", OccupancyGrid, timeout=100)
         cost_map_msg = rospy.wait_for_message(
@@ -76,10 +72,9 @@ class MapManager:
         rospy.loginfo("Map and cost map messages received.")
 
         # Process the map and cost map
-        #first is cost map because it is used in map_callback
+        # first is cost map because it is used in map_callback
         self.cost_map_callback(cost_map_msg)
         self.map_callback(map_msg)
-        
 
     def map_callback(self, map_data) -> None:
         """
@@ -92,9 +87,7 @@ class MapManager:
             self.size_x = map_data.info.width
             self.size_y = map_data.info.height
 
-            rospy.loginfo(
-                "Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y))
-            )
+            rospy.loginfo("Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y)))
 
             if self.size_x < 3 or self.size_y < 3:
                 rospy.loginfo(
@@ -132,18 +125,18 @@ class MapManager:
 
             # find branch points note the map is flipped
             self.branch_points = self.find_branch_points()
-
-            
             self.branch_points = self.filter_branch_points()
 
             # self.visualize_branch_points()
 
-            self.visualize(self.map, self.skeleton_overlay, self.branch_points,self.accessible_costmap)
+            self.visualize(
+                self.map, self.skeleton_overlay, self.branch_points, self.accessible_costmap
+            )
 
             self.init_goals()
 
     def distance(self, point1, point2):
-        return math.sqrt((point1[0]-point2[0])**2+(point1[1]-point2[1])**2)
+        return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
 
     def filter_branch_points(self):
         """
@@ -151,69 +144,53 @@ class MapManager:
         """
         filtered_branch_points = []
         for point in self.branch_points:
-
-            #get cost of point
-            if self.in_map_bounds(point[0],point[1]) and self.can_move_to(point[0],point[1]):
-                print("Point is in map bounds and can move to", point)
-                filtered_branch_points.append(point)
-            else:
+            # get cost of point
+            if not (
+                self.in_map_bounds(point[0], point[1]) and self.can_move_to(point[0], point[1])
+            ):
                 print("Point is not in map bounds or can not move to", point)
                 continue
-                
 
-                
+            # get closest point
+            closest_point = None
+            closest_distance = np.inf
+            for filtered_point in filtered_branch_points:
+                distance = self.distance(point, filtered_point)
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_point = filtered_point
 
-            # #get closest point
-            # closest_point = None
-            # closest_distance = 1000000
-            # for filtered_point in filtered_branch_points:
-            #     distance = self.distance(point,filtered_point)
-            #     if distance < closest_distance:
-            #         closest_distance = distance
-            #         closest_point = filtered_point
+            # remove if there is a clear path between the two points
+            to_meters = closest_distance * self.map_resolution
+            if closest_point is not None and to_meters < 0.7:
+                print("Removing point, because to close to another: ", point)
+                continue
 
-            # #TODO
-
-            # #remove if there is a clear path between the two points
-            # to_meters = closest_distance * self.map_resolution
-            # in_corner = self.is_in_proximity_of_black_pixel(point,0.3)
-            # #print(f"{point} - Closest point: {closest_point}, distance: {to_meters} m, in corner: {in_corner}")
-            # if closest_point is not None and to_meters < 0.4:
-            #     #print("Removing point: ", point)
-            #     continue
-
-            
             # # #check that the point is not too close to black pixels
             # # if self.is_in_proximity_of_black_pixel(point,0.7):
             # #     continue
-
-            # filtered_branch_points.append(point)
-            # print("Added point: ", point)
-
-
-
-        #filter
-
+            filtered_branch_points.append(point)
+            print("Adding prospect point: ", point)
 
         return filtered_branch_points
 
-    def bresenham_line(self, x0, y0, x1, y1):
+    def bresenham_line(self, x_0, y_0, x_1, y_1):
         points = []
-        dx, dy = abs(x1 - x0), abs(y1 - y0)
-        sx, sy = 1 if x0 < x1 else -1, 1 if y0 < y1 else -1
+        dx, dy = abs(x_1 - x_0), abs(y_1 - y_0)
+        sx, sy = 1 if x_0 < x_1 else -1, 1 if y_0 < y_1 else -1
         err = dx - dy
 
         while True:
-            points.append((x0, y0))
-            if x0 == x1 and y0 == y1:
+            points.append((x_0, y_0))
+            if x_0 == x_1 and y_0 == y_1:
                 break
             e2 = 2 * err
             if e2 > -dy:
                 err -= dy
-                x0 += sx
+                x_0 += sx
             if e2 < dx:
                 err += dx
-                y0 += sy
+                y_0 += sy
 
         return points
 
@@ -238,7 +215,7 @@ class MapManager:
         The proximity is in meters.
 
         """
-        
+
         proximity = int(proximity / self.map_resolution)
         x, y = point
         rows, cols = self.map.shape
@@ -270,14 +247,12 @@ class MapManager:
 
         for other_point in other_points:
             distance = np.linalg.norm(np.array(point) - np.array(other_point))
-            if distance <= distance_threshold and self.has_clear_path(
-                point, other_point
-            ):
+            if distance <= distance_threshold and self.has_clear_path(point, other_point):
                 return True
 
         return False
 
-    def visualize(self, map, skeleton_overlay, branch_points,accessible_costmap):
+    def visualize(self, map, skeleton_overlay, branch_points, accessible_costmap):
         """
         Visualize the map, skeleton overlay and branch points in rviz.
         """
@@ -313,7 +288,7 @@ class MapManager:
         img = zoomed
 
         # save image
-        cv2.imwrite("map.png", img)
+        # cv2.imwrite("map.png", img)
 
         # plot
         plt.imshow(img, cmap="gray")
@@ -350,9 +325,7 @@ class MapManager:
             cost_map_resolution = map_data.info.resolution
             rospy.loginfo("cost_map resolution: %s" % str(cost_map_resolution))
 
-            self.cost_map = (
-                np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
-            )
+            self.cost_map = np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
 
             # get correct numbers
             self.cost_map[self.cost_map == -1] = 127
@@ -427,9 +400,7 @@ class MapManager:
         Returns:
             Tuple[float, float]: The current robot position (x, y).
         """
-        pose_msg = rospy.wait_for_message(
-            "/amcl_pose", PoseWithCovarianceStamped, timeout=5.0
-        )
+        pose_msg = rospy.wait_for_message("/amcl_pose", PoseWithCovarianceStamped, timeout=5.0)
         robot_position = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
         return robot_position
 
@@ -446,9 +417,7 @@ class MapManager:
         robot_x, robot_y = self.get_robot_position()
 
         # Sort goals by distance to the robot
-        goals.sort(
-            key=lambda goal: ((goal[0] - robot_x) ** 2 + (goal[1] - robot_y) ** 2)
-        )
+        goals.sort(key=lambda goal: ((goal[0] - robot_x) ** 2 + (goal[1] - robot_y) ** 2))
 
         self.goal_points = goals
         self.publish_markers_of_goals(goals)
@@ -555,9 +524,7 @@ class MapManager:
         # Apply thresholding to identify the optimal corners
         # Decrease the threshold factor to detect more corners (e.g., from 0.32 to 0.2)
         threshold_value = 0.12 * harris_corners_dilated.max()
-        threshold_image = cv2.threshold(
-            harris_corners_dilated, threshold_value, 255, 0
-        )[1]
+        threshold_image = cv2.threshold(harris_corners_dilated, threshold_value, 255, 0)[1]
         threshold_image_uint8 = np.uint8(threshold_image)
 
         # Find connected components and their centroids
@@ -572,9 +539,7 @@ class MapManager:
         )
 
         # Extract the branch point coordinates from the refined corners
-        branch_points = [
-            (int(corner[0]), int(corner[1])) for corner in refined_corners[1:]
-        ]
+        branch_points = [(int(corner[0]), int(corner[1])) for corner in refined_corners[1:]]
         return branch_points
 
     def visualize_branch_points(self) -> None:
@@ -588,9 +553,9 @@ class MapManager:
 
         overlayed_bp = cv2.addWeighted(self.map, 0.5, bp_map, 0.5, 0)
 
-        cv2.imshow("overlayed branch points", overlayed_bp)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        # cv2.imshow("overlayed branch points", overlayed_bp)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
 
     def get_face_greet_location_candidates_perpendicular(
         self, x_ce, y_ce, fpose_left, fpose_right, d=30
@@ -653,9 +618,7 @@ class MapManager:
                 x = backup_candidate[0]
                 y = backup_candidate[1]
 
-                x_close, y_close = self.nearest_nonzero_to_point(
-                    self.accessible_costmap, x, y
-                )
+                x_close, y_close = self.nearest_nonzero_to_point(self.accessible_costmap, x, y)
                 candidates_reachable.append((x_close, y_close))
                 print(candidates_reachable)
 

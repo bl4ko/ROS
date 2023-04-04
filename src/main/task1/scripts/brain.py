@@ -31,18 +31,14 @@ class Brain:
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
         rospy.loginfo("Map manager is ready")
-        self.move_base_client = actionlib.SimpleActionClient(
-            "move_base", MoveBaseAction
-        )
+        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
         rospy.loginfo("Waiting for move_base server.")
         self.move_base_client.wait_for_server()
         self.velocity_publisher = rospy.Publisher(
             "mobile_base/commands/velocity", Twist, queue_size=10
         )
         self.init_planner()
-        self.markers_timer = rospy.Timer(
-            rospy.Duration(1), lambda event: brain.map_show_markers()
-        )
+        self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: brain.map_show_markers())
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
@@ -133,9 +129,10 @@ class Brain:
 
         if not wait_result:
             rospy.logerr("Not able to set goal.")
-        else:
-            res = self.move_base_client.get_state()
-            return res
+            return -1
+
+        res = self.move_base_client.get_state()
+        return res
 
     def degrees_to_rad(self, deg):
         """
@@ -206,8 +203,7 @@ class Brain:
 
             for vertex in unvisited_vertices:
                 distance = math.sqrt(
-                    (current_vertex[0] - vertex[0]) ** 2
-                    + (current_vertex[1] - vertex[1]) ** 2
+                    (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
                 )
                 if distance < nearest_distance:
                     nearest_distance = distance
@@ -232,9 +228,7 @@ class Brain:
         Returns:
             Tuple[float, float, float, float]: quaternion representing the orientation
         """
-        angle = math.atan2(
-            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
-        )
+        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
         quaternion = quaternion_from_euler(0, 0, angle)
         return quaternion
 
@@ -247,19 +241,16 @@ class Brain:
         """
 
         while not rospy.is_shutdown():
-
-
-
             goals = self.map_manager.get_goals()
             optimized_path = self.nearest_neighbor_path(goals, goals[0])
 
             detected_faces_count = 0
 
             for i, goal in enumerate(optimized_path):
+                rospy.loginfo(f"Moving to goal {i + 1}/{len(optimized_path)}: {goal}")
                 quaternion = (0, 0, 0, 1)
 
-                # Optimisation: Check if this is not the last goal
-                # In that case, adjust the orientation to the next goal
+                # At each goal adjust orientation to the next goal
                 if i < len(optimized_path) - 1:
                     next_goal = optimized_path[i + 1]
                     quaternion = self.orientation_between_points(goal, next_goal)
@@ -275,7 +266,10 @@ class Brain:
                         print(new_faces)
                         print(len(new_faces))
                         for new_face in new_faces:
-                            rospy.loginfo(f"Moving to face id: {new_face.face_id} at {new_face.x_coord}, {new_face.y_coord}")
+                            rospy.loginfo(
+                                f"Moving to face id: {new_face.face_id} at {new_face.x_coord},"
+                                f" {new_face.y_coord}"
+                            )
                             self.move_to_goal(
                                 new_face.x_coord,
                                 new_face.y_coord,
@@ -294,8 +288,6 @@ class Brain:
                         detected_faces_count = len(self.detected_faces)
 
             rospy.loginfo("I have finished my task")
-
-            
 
 
 if __name__ == "__main__":
