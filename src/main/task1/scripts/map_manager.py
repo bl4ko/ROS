@@ -129,9 +129,9 @@ class MapManager:
 
             # self.visualize_branch_points()
 
-            self.visualize(
-                self.map, self.skeleton_overlay, self.branch_points, self.accessible_costmap
-            )
+            # self.visualize(
+            #     self.map, self.skeleton_overlay, self.branch_points, self.accessible_costmap
+            # )
 
             self.init_goals()
 
@@ -335,7 +335,7 @@ class MapManager:
             # remember only accessible positions
             self.accessible_costmap = np.copy(self.cost_map)
 
-            threshold_available_map_point = 60
+            # threshold_available_map_point = 60
             # self.accessible_costmap[
             #     self.accessible_costmap > threshold_available_map_point
             # ] = 0
