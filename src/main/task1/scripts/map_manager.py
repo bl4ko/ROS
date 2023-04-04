@@ -45,10 +45,10 @@ class MapManager:
         self.accessible_costmap = None  # Accesible points in the cost map
         self.skeleton_overlay = None  # Overlay of the skeleton on the map
         self.branch_points = None  # Branch points in the skeleton
-        self.map_subscriber = rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
-        self.cost_map_subscriber = rospy.Subscriber(
-            "/move_base/global_costmap/costmap", OccupancyGrid, self.cost_map_callback
-        )
+        # self.map_subscriber = rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
+        # self.cost_map_subscriber = rospy.Subscriber(
+        #     "/move_base/global_costmap/costmap", OccupancyGrid, self.cost_map_callback
+        # )
         self.map_lock = threading.Lock()  # Add a lock for the map attribute
         self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
         self.marker_publisher = rospy.Publisher(
@@ -64,6 +64,22 @@ class MapManager:
         self.cost_map_ready = False
         self.bridge = CvBridge()
         self.image_pub = rospy.Publisher("/map_manager_info", Image, queue_size=10)
+
+
+
+        #wait for messages
+        rospy.loginfo("Waiting for map and cost map messages...")
+        map_msg = rospy.wait_for_message("/map", OccupancyGrid, timeout=100)
+        cost_map_msg = rospy.wait_for_message(
+            "/move_base/global_costmap/costmap", OccupancyGrid, timeout=100
+        )
+        rospy.loginfo("Map and cost map messages received.")
+
+        # Process the map and cost map
+        #first is cost map because it is used in map_callback
+        self.cost_map_callback(cost_map_msg)
+        self.map_callback(map_msg)
+        
 
     def map_callback(self, map_data) -> None:
         """
@@ -117,11 +133,12 @@ class MapManager:
             # find branch points note the map is flipped
             self.branch_points = self.find_branch_points()
 
+            
             self.branch_points = self.filter_branch_points()
 
             # self.visualize_branch_points()
 
-            self.visualize(self.map, self.skeleton_overlay, self.branch_points)
+            self.visualize(self.map, self.skeleton_overlay, self.branch_points,self.accessible_costmap)
 
             self.init_goals()
 
@@ -135,32 +152,43 @@ class MapManager:
         filtered_branch_points = []
         for point in self.branch_points:
 
-            #get closest point
-            closest_point = None
-            closest_distance = 1000000
-            for filtered_point in filtered_branch_points:
-                distance = self.distance(point,filtered_point)
-                if distance < closest_distance:
-                    closest_distance = distance
-                    closest_point = filtered_point
-
-            #TODO
-
-            #remove if there is a clear path between the two points
-            to_meters = closest_distance * self.map_resolution
-            in_corner = self.is_in_proximity_of_black_pixel(point,0.3)
-            print(f"{point} - Closest point: {closest_point}, distance: {to_meters} m, in corner: {in_corner}")
-            if closest_point is not None and to_meters < 0.4:
-                print("Removing point: ", point)
+            #get cost of point
+            if self.in_map_bounds(point[0],point[1]) and self.can_move_to(point[0],point[1]):
+                print("Point is in map bounds and can move to", point)
+                filtered_branch_points.append(point)
+            else:
+                print("Point is not in map bounds or can not move to", point)
                 continue
+                
 
-            
-            # #check that the point is not too close to black pixels
-            # if self.is_in_proximity_of_black_pixel(point,0.7):
+                
+
+            # #get closest point
+            # closest_point = None
+            # closest_distance = 1000000
+            # for filtered_point in filtered_branch_points:
+            #     distance = self.distance(point,filtered_point)
+            #     if distance < closest_distance:
+            #         closest_distance = distance
+            #         closest_point = filtered_point
+
+            # #TODO
+
+            # #remove if there is a clear path between the two points
+            # to_meters = closest_distance * self.map_resolution
+            # in_corner = self.is_in_proximity_of_black_pixel(point,0.3)
+            # #print(f"{point} - Closest point: {closest_point}, distance: {to_meters} m, in corner: {in_corner}")
+            # if closest_point is not None and to_meters < 0.4:
+            #     #print("Removing point: ", point)
             #     continue
 
-            filtered_branch_points.append(point)
-            print("Added point: ", point)
+            
+            # # #check that the point is not too close to black pixels
+            # # if self.is_in_proximity_of_black_pixel(point,0.7):
+            # #     continue
+
+            # filtered_branch_points.append(point)
+            # print("Added point: ", point)
 
 
 
@@ -249,14 +277,14 @@ class MapManager:
 
         return False
 
-    def visualize(self, map, skeleton_overlay, branch_points):
+    def visualize(self, map, skeleton_overlay, branch_points,accessible_costmap):
         """
         Visualize the map, skeleton overlay and branch points in rviz.
         """
         # create a blank image
         img = np.zeros((self.size_y, self.size_x), np.uint8)
         # add each with a certain weight
-        img = cv2.addWeighted(map, 0.5, skeleton_overlay, 0.38, 0)
+        img = cv2.addWeighted(accessible_costmap, 0.5, skeleton_overlay, 0.38, 0)
 
         # conver branch points (x,y) to image where x y is white
 

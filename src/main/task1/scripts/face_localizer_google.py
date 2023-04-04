@@ -63,10 +63,12 @@ class DetectedFacesTracker:
         self.grouped_faces_by_distance = []  # list of objects
         self.distance_threshold = 0.5  # in meters
         self.detection_threshold = (
-            1  # number of detections to consider a face as a valid face
+            3  # number of detections to consider a face as a valid face
         )
         self.detection_history = 50  # number of detections to keep in the history
-        self.max_face_distance = 1.6
+        self.max_face_distance = 1.6 # in meters max distance to a valid face
+        self.max_greeting_distance = 0.6 # in meters max distance to a valid face
+
         self.map_manager = MapManager()
 
     def add_face(self, face):
@@ -201,8 +203,14 @@ class DetectedFacesTracker:
                         pose_face_right,
                     )
 
+                    greet_to_face_distance = np.linalg.norm(
+                        np.array([xg, yg]) - np.array([xr, yr])
+                    )
+
+
+
                     # Weight the greet location based on the confidence and the inverse of the distance
-                    weight = confidence / face_distance
+                    weight = confidence / face_distance * greet_to_face_distance
                     avg_face_greet_location = (
                         avg_face_greet_location[0] + xg * weight,
                         avg_face_greet_location[1] + yg * weight,
@@ -215,7 +223,21 @@ class DetectedFacesTracker:
                     avg_face_greet_location[1] / total_weight,
                 )
 
+                #check distance of greet location to face
+                greet_to_face_distance = np.linalg.norm(
+                    np.array([avg_face_greet_location[0], avg_face_greet_location[1]])
+                    - np.array([avg_pose.position.x, avg_pose.position.y])
+                )
+
+                print("greet_to_face_distance: ", greet_to_face_distance)
+                if greet_to_face_distance > self.max_greeting_distance:
+                    print("greet_to_face_distance is too large not adding to greet locations")
+                    continue
+
+
+
                 loc.append((avg_face_greet_location, group))
+
 
         return loc
 
@@ -648,8 +670,8 @@ class FaceLocalizer:
                 face_c_x = coords[i][0]
                 face_c_y = coords[i][1]
 
-                normal_x = fc_group["potential_faces_normals"][0][0]
-                normal_y = fc_group["potential_faces_normals"][0][1]
+                normal_x = fc_group["avg_face_normal"][0]
+                normal_y = fc_group["avg_face_normal"][1]
 
                 q_dest = self.quaternion_for_face_greet(face_c_x, face_c_y, x, y)
                 rr_x = q_dest[0]
