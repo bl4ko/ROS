@@ -1,6 +1,6 @@
 float32 x_coord
 float32 y_coord
-int32 face_id
+int32 group_id
 float32 rr_x
 float32 rr_y
 float32 rr_z
