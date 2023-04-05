@@ -233,7 +233,7 @@ class DetectedFacesTracker:
                 if greet_to_face_distance > self.max_greeting_distance:
                     print("greet_to_face_distance is too large not adding to greet locations")
                     continue
-
+                
 
 
                 loc.append((avg_face_greet_location, group))

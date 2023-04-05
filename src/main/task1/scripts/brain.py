@@ -258,7 +258,7 @@ class Brain:
         """
 
         detected_faces_count = 0
-        target_face_detections = 5 #TODO
+        target_face_detections = 3 #TODO
 
         goals = self.map_manager.get_goals()
 
