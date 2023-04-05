@@ -76,6 +76,9 @@ class FaceGroup:
         self.potential_normals = [self.get_face_normal(initial_face)]
         self.avg_face_normal = self.potential_normals[0]
 
+    def __str__(self) -> str:
+        return f"FaceGroup(detections={self.detections})"
+
     def get_face_normal(self, face: DetectedFace) -> Tuple[float, float]:
         """
         Gets the normal of a face.
@@ -130,13 +133,21 @@ class DetectedFacesTracker:
         self.tracked_faces = []
         self.face_groups: List[FaceGroup] = []  # list of objects
         self.group_distance_threshold: float = 0.5  # in meters
-        self.valid_detection_threshold: float = (
+        self.valid_detection_threshold: int = (
             3  # number of detections to consider a face as a valid face
         )
         self.history_limit: int = 50  # number of detections to keep in the history
         self.face_max_distance: float = 1.6  # in meters max distance to a valid face
         self.greeting_max_distance: float = 0.6  # in meters max distance to a valid face
         self.map_manager: MapManager = MapManager()
+
+    def print_face_groups(self):
+        """
+        Prints the face groups to stdout.
+        """
+        print("  Group faces:")
+        for i, face_group in enumerate(self.face_groups):
+            print(f"    Group {i + 1}: {face_group}")
 
     def add_face(self, face: DetectedFace) -> None:
         """
@@ -162,13 +173,17 @@ class DetectedFacesTracker:
 
             if self.is_close(avg_pose, face.pose) and same_side:
                 if face_group.detections >= self.history_limit:
+                    print("Face group has reached the history limit, not adding new faces")
                     return
 
                 face_group.add_face(face)
+                print("Face added to existing face group!")
+                self.print_face_groups()
                 return
 
         print("New face detected, new facegroup created and added to list of unique groups!")
         self.face_groups.append(FaceGroup(face))
+        self.print_face_groups()
 
     def is_close(self, pose1: Pose, pose2: Pose):
         """
@@ -677,7 +692,7 @@ def main():
     """
     rospy.init_node("face_localizer", anonymous=True)
     face_finder = FaceLocalizer()
-    rospy.Timer(rospy.Duration(1), lambda _: face_finder.find_faces())
+    rospy.Timer(rospy.Duration(0.5), lambda _: face_finder.find_faces())
     rospy.spin()
     cv2.destroyAllWindows()
 

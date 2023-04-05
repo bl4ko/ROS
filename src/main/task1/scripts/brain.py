@@ -249,10 +249,13 @@ class Brain:
             detected_faces_count = 0
 
             for i, goal in enumerate(optimized_path):
-                rospy.loginfo(f"Moving to goal {i + 1}/{len(optimized_path)}: {goal}")
-                quaternion = (0, 0, 0, 1)
+                rospy.loginfo(
+                    f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
+                    f" {len(self.detected_faces)}"
+                )
 
                 # At each goal adjust orientation to the next goal
+                quaternion = (0, 0, 0, 1)
                 if i < len(optimized_path) - 1:
                     next_goal = optimized_path[i + 1]
                     quaternion = self.orientation_between_points(goal, next_goal)
@@ -262,16 +265,13 @@ class Brain:
 
                 with self.detected_faces_lock:
                     if len(self.detected_faces) > detected_faces_count:
-                        rospy.loginfo("I have detected a face")
-
+                        rospy.loginfo(
+                            f"I have detected {len(self.detected_faces) - detected_faces_count} new"
+                            " faces during this iteration."
+                        )
                         new_faces = self.detected_faces[detected_faces_count:]
-                        print(new_faces)
-                        print(len(new_faces))
+
                         for new_face in new_faces:
-                            rospy.loginfo(
-                                f"Moving to face id: {new_face.face_id} at {new_face.x_coord},"
-                                f" {new_face.y_coord}"
-                            )
                             self.move_to_goal(
                                 new_face.x_coord,
                                 new_face.y_coord,
