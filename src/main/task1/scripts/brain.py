@@ -16,6 +16,7 @@ import actionlib
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Twist
 from tf.transformations import quaternion_from_euler
+from sound import SoundPlayer
 
 
 class Brain:
@@ -45,6 +46,7 @@ class Brain:
         self.is_moving = False
         self.detected_faces = []
         self.detected_faces_lock = threading.Lock()
+        self.sound_player = SoundPlayer()
 
     def init_planner(self):
         """
@@ -279,9 +281,8 @@ class Brain:
                                 new_face.rr_w,
                             )
 
-                            # TODO: stop for 2 seconds
-                            # Sound or something to greet the face can be aded
                             rospy.loginfo(f"Greeting face id: {new_face.face_id}")
+                            self.sound_player.play_greeting_sound()
                             rospy.sleep(2)
                             rospy.loginfo(f"Done greeting face id: {new_face.face_id}")
 
