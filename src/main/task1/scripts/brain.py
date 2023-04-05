@@ -26,7 +26,7 @@ class Brain:
     """
 
     def __init__(self):
-        self.map_manager = MapManager()
+        self.map_manager = MapManager(show_plot=True)
         rospy.loginfo("Waiting for map manager to be ready...")
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)

@@ -41,7 +41,7 @@ class MapManager:
     A class for managaing a map, processing it and publishing markers for points to visit.
     """
 
-    def __init__(self):
+    def __init__(self,show_plot=False):
         self.map = None  # Map from /map topic
         self.cost_map = None  # Cost map from move_base/global_costmap/costmap
         self.accessible_costmap = None  # Accesible points in the cost map
@@ -78,6 +78,7 @@ class MapManager:
         self.searched_space = None
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
+        self.show_plot = show_plot
 
         # Process the map and cost map
         # first is cost map because it is used in map_callback
@@ -139,12 +140,13 @@ class MapManager:
 
             # self.visualize_branch_points()
 
-            self.visualize(
-                self.map,
-                self.skeleton_overlay,
-                self.branch_points,
-                self.accessible_costmap,
-            )
+            if self.show_plot:
+                self.visualize(
+                    self.map,
+                    self.skeleton_overlay,
+                    self.branch_points,
+                    self.accessible_costmap,
+                )
 
             self.init_searched_space(self.accessible_costmap, self.branch_points)
 
@@ -231,10 +233,24 @@ class MapManager:
             if self.map[int(centroid[1]),int(centroid[0])] == 255 and stats[i+1][4] > 40:
                 additional_goals.append((centroid[0],centroid[1]))
                 cv2.circle(unsearched_space, (int(centroid[0]),int(centroid[1])), 1, 60, -1)
+            elif stats[i+1][4] > 40:
+                #centroid center is not in the safe space
+                #check if any of the points in the bounding box are in the safe space
+                #if so add one of those points as a goal
+                #rospy.loginfo("centroid center is not in the safe space searching for a point in the safe space")
+                x,y,w,h = stats[i+1][0:4]
+                for x in range(x,x+w):
+                    for y in range(y,y+h):
+                        if self.map[y,x] == 255:
+                            #rospy.loginfo("found a point in the safe space")
+                            additional_goals.append((x,y))
+                            cv2.circle(unsearched_space, (x,y), 1, 60, -1)
+                            break
+                    else:
+                        continue
+                    break
 
-        
         cv2.imwrite("unsearched_space.png", np.flip(unsearched_space,0))
-
         #convert to map coordinates
         toret = []
         for goal in additional_goals:
