@@ -27,7 +27,7 @@ class Brain:
     """
 
     def __init__(self):
-        self.map_manager = MapManager()
+        self.map_manager = MapManager(show_plot=True)
         rospy.loginfo("Waiting for map manager to be ready...")
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
@@ -43,10 +43,15 @@ class Brain:
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
+        self.searched_space_timer = rospy.Timer(
+            rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
+        )
+
         self.is_moving = False
         self.detected_faces = []
         self.detected_faces_lock = threading.Lock()
         self.sound_player = SoundPlayer()
+        self.aditional_goals = []
 
     def init_planner(self):
         """
@@ -70,6 +75,9 @@ class Brain:
         Publishes markers of initail goals on the map.
         """
         goals = self.map_manager.get_goals()
+        if len(self.aditional_goals) > 0:
+            goals.extend(self.aditional_goals)
+
         self.map_manager.publish_markers_of_goals(goals)
 
     def faces_callback(self, msg: DetectedFaces):
@@ -200,16 +208,30 @@ class Brain:
         path = [start_vertex]
 
         while unvisited_vertices:
-            nearest_vertex = None
-            nearest_distance = sys.float_info.max
-
-            for vertex in unvisited_vertices:
-                distance = math.sqrt(
-                    (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+            in_sight_vertices = [
+                vertex
+                for vertex in unvisited_vertices
+                if self.map_manager.has_clear_path(current_vertex, vertex)
+            ]
+            # print(in_sight_vertices)
+            if in_sight_vertices:
+                in_sight_vertices.sort(
+                    key=lambda vertex: math.sqrt(
+                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                    )
                 )
-                if distance < nearest_distance:
-                    nearest_distance = distance
-                    nearest_vertex = vertex
+                nearest_vertex = in_sight_vertices[0]
+            else:
+                nearest_vertex = None
+                nearest_distance = sys.float_info.max
+
+                for vertex in unvisited_vertices:
+                    distance = math.sqrt(
+                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                    )
+                    if distance < nearest_distance:
+                        nearest_distance = distance
+                        nearest_vertex = vertex
 
             path.append(nearest_vertex)
             unvisited_vertices.remove(nearest_vertex)
@@ -242,11 +264,13 @@ class Brain:
         the face location and then continues to the next keypoint.
         """
 
-        while not rospy.is_shutdown():
-            goals = self.map_manager.get_goals()
-            optimized_path = self.nearest_neighbor_path(goals, goals[0])
+        detected_faces_count = 0
+        target_face_detections = 3
 
-            detected_faces_count = 0
+        goals = self.map_manager.get_goals()
+
+        while not rospy.is_shutdown():
+            optimized_path = self.nearest_neighbor_path(goals, goals[0])
 
             for i, goal in enumerate(optimized_path):
                 rospy.loginfo(
@@ -261,7 +285,7 @@ class Brain:
                     quaternion = self.orientation_between_points(goal, next_goal)
 
                 self.move_to_goal(goal[0], goal[1], *quaternion)
-                self.rotate(360)
+                self.rotate(360, angular_speed=0.7)
 
                 with self.detected_faces_lock:
                     if len(self.detected_faces) > detected_faces_count:
@@ -288,7 +312,27 @@ class Brain:
 
                         detected_faces_count = len(self.detected_faces)
 
-            rospy.loginfo("I have finished my task")
+                if detected_faces_count >= target_face_detections:
+                    break
+
+            if detected_faces_count < target_face_detections:
+                rospy.loginfo("Not all faces have been detected. Will start EXPLORING")
+                # get new goals now that we have explored the map
+                self.aditional_goals = self.map_manager.get_get_aditional_goals()
+                if len(self.aditional_goals) < 1:
+                    rospy.loginfo("No new goals found. Will stop i failed to find all faces")
+                    break
+                else:
+                    rospy.loginfo(
+                        f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
+                    )
+                    goals = self.aditional_goals
+
+            else:
+                rospy.loginfo("All faces have been detected. Will stop")
+                break
+
+        rospy.loginfo("I have finished my task")
 
 
 if __name__ == "__main__":

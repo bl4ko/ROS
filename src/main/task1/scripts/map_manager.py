@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import threading
+import math
 from typing import Tuple, List
 import cv2
 import numpy as np
@@ -19,10 +20,12 @@ from geometry_msgs.msg import (
 )
 from visualization_msgs.msg import Marker, MarkerArray
 from tf import transformations as t
+from tf.transformations import euler_from_quaternion
 from bresenham import bresenham  # pylint: disable=import-error
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
-import math
+import tf2_ros
+
 
 # This script retrieves the map from the map_server and saves it in a 2D array.
 # It also uses ekeletonize to get most important points to visit in the map.
@@ -39,7 +42,7 @@ class MapManager:
     A class for managaing a map, processing it and publishing markers for points to visit.
     """
 
-    def __init__(self):
+    def __init__(self, show_plot=False):
         self.map = None  # Map from /map topic
         self.cost_map = None  # Cost map from move_base/global_costmap/costmap
         self.accessible_costmap = None  # Accesible points in the cost map
@@ -70,6 +73,11 @@ class MapManager:
             "/move_base/global_costmap/costmap", OccupancyGrid, timeout=100
         )
         rospy.loginfo("Map and cost map messages received.")
+
+        self.searched_space = None
+        self.tf_buf = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
+        self.show_plot = show_plot
 
         # Process the map and cost map
         # first is cost map because it is used in map_callback
@@ -129,11 +137,117 @@ class MapManager:
 
             # self.visualize_branch_points()
 
-            # self.visualize(
-            #     self.map, self.skeleton_overlay, self.branch_points, self.accessible_costmap
-            # )
+            if self.show_plot:
+                self.visualize(
+                    self.map,
+                    self.skeleton_overlay,
+                    self.branch_points,
+                    self.accessible_costmap,
+                )
+
+            self.init_searched_space(self.accessible_costmap, self.branch_points)
 
             self.init_goals()
+
+    def init_searched_space(self, accessible_costmap, branch_points):
+        """
+        Initialize the searched space to be the size of the accessible costmap
+        and set all points that are not accessible to -1.
+        60 = not searched
+        255 = searched
+        0 = not accessible
+        """
+
+        # initialize searched space
+        self.searched_space = np.zeros((self.size_y, self.size_x))
+
+        # set all points that are not accessible to -1
+        for y in range(self.size_y):
+            for x in range(self.size_x):
+                if not self.map[y, x] == 255:  # free space
+                    self.searched_space[y, x] = 0
+
+                else:
+                    self.searched_space[y, x] = 60
+
+    def update_searched_space(self):
+        """
+        gets the current position of the robot and updates the searched space
+        in a radius around the robot of 10 pixels around the robot
+        """
+        try:
+            self.tf_buf.can_transform("map", "base_link", rospy.Time(0), rospy.Duration(3.0))
+
+            ### Give me where is the 'base_link' frame relative to the 'map' frame at the latest available time
+            coords = self.tf_buf.lookup_transform("map", "base_link", rospy.Time(0))
+            x, y = self.world_to_map_coords(
+                coords.transform.translation.x, coords.transform.translation.y
+            )
+            # print("x,y",x,y)
+            cv2.circle(self.searched_space, (x, y), 10, 255, -1)
+            # cv2.imwrite("searched_space2.png", np.flip(self.searched_space, 0))
+            self.get_get_aditional_goals()
+
+        except Exception as e:
+            # (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException)
+            print(e)
+
+    def get_get_aditional_goals(self):
+        """
+        Returns a list of goals from the searched space that have not been searched yet.
+        """
+        # get the unsarched space
+        unsearched_space = self.searched_space.copy()
+        unsearched_space[unsearched_space == 255] = 0
+        unsearched_space[unsearched_space == 60] = 255
+        unsearched_space[unsearched_space == 0] = 0
+        unsearched_space.astype(np.uint8)
+
+        # convert to 8-bit single-channel image
+        unsearched_space = cv2.convertScaleAbs(unsearched_space)
+
+        # get centroids of the unsearched space
+        _, _, stats, centroids = cv2.connectedComponentsWithStats(unsearched_space)
+
+        # get the centroids that are not the background
+        centroids = centroids[1:]
+
+        additional_goals = []
+
+        # add a dot to the unsearched space
+        for i, centroid in enumerate(centroids):
+            # has to be in the map bounds
+            # #has to include more than 40 pixels
+            # print("centroid",stats[i])
+
+            if self.map[int(centroid[1]), int(centroid[0])] == 255 and stats[i + 1][4] > 40:
+                additional_goals.append((centroid[0], centroid[1]))
+                cv2.circle(unsearched_space, (int(centroid[0]), int(centroid[1])), 1, 60, -1)
+            elif stats[i + 1][4] > 40:
+                # centroid center is not in the safe space
+                # check if any of the points in the bounding box are in the safe space
+                # if so add one of those points as a goal
+                # rospy.loginfo("centroid center is not in the safe space searching for a point in the safe space")
+                x, y, w, h = stats[i + 1][0:4]
+                for x in range(x, x + w):
+                    for y in range(y, y + h):
+                        if self.map[y, x] == 255:
+                            # rospy.loginfo("found a point in the safe space")
+                            additional_goals.append((x, y))
+                            cv2.circle(unsearched_space, (x, y), 1, 60, -1)
+                            break
+                    else:
+                        continue
+                    break
+
+        cv2.imwrite("unsearched_space.png", np.flip(unsearched_space, 0))
+        # convert to map coordinates
+        toret = []
+        for goal in additional_goals:
+            x, y = self.map_to_world_coords(goal[0], goal[1])
+            toret.append((x, y))
+
+        return toret
 
     def distance(self, point1, point2):
         return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
@@ -174,35 +288,25 @@ class MapManager:
 
         return filtered_branch_points
 
-    def bresenham_line(self, x_0, y_0, x_1, y_1):
-        points = []
-        dx, dy = abs(x_1 - x_0), abs(y_1 - y_0)
-        sx, sy = 1 if x_0 < x_1 else -1, 1 if y_0 < y_1 else -1
-        err = dx - dy
-
-        while True:
-            points.append((x_0, y_0))
-            if x_0 == x_1 and y_0 == y_1:
-                break
-            e2 = 2 * err
-            if e2 > -dy:
-                err -= dy
-                x_0 += sx
-            if e2 < dx:
-                err += dx
-                y_0 += sy
-
-        return points
-
     def has_clear_path(self, point1, point2):
+        """
+        Check if there is a clear path between two points.
+
+        The points are in world coordinates.
+        """
+
+        # world to map coordinates
+        point1 = self.world_to_map_coords(point1[0], point1[1])
+        point2 = self.world_to_map_coords(point2[0], point2[1])
+
         x0, y0 = point1
         x1, y1 = point2
 
-        points = self.bresenham_line(x0, y0, x1, y1)
+        points = bresenham(x0, y0, x1, y1)
 
         for point in points:
             x, y = point
-            pixel_value = self.map[x, y]
+            pixel_value = self.map[y, x]
             if pixel_value == 0:
                 return False
 
@@ -379,9 +483,11 @@ class MapManager:
         # both cost map and map must be ready
         with self.cost_map_lock:
             if not self.cost_map_ready:
+                print("cost map not ready")
                 return False
 
         with self.map_lock:
+            print(f"goals ready: {self.goals_ready}")
             return self.goals_ready
 
     def get_goals(self) -> List[Tuple[float, float]]:
@@ -400,7 +506,9 @@ class MapManager:
         Returns:
             Tuple[float, float]: The current robot position (x, y).
         """
+        rospy.loginfo("Waiting for amcl_pose...")
         pose_msg = rospy.wait_for_message("/amcl_pose", PoseWithCovarianceStamped, timeout=5.0)
+        rospy.loginfo("Received amcl_pose.")
         robot_position = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
         return robot_position
 
@@ -519,7 +627,7 @@ class MapManager:
         harris_corners_dilated = cv2.dilate(harris_corners, None)
 
         # save the dilated image
-        cv2.imwrite("harris_corners_dilated.png", harris_corners_dilated)
+        # cv2.imwrite("harris_corners_dilated.png", harris_corners_dilated)
 
         # Apply thresholding to identify the optimal corners
         # Decrease the threshold factor to detect more corners (e.g., from 0.32 to 0.2)

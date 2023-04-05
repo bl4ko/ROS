@@ -1,13 +1,17 @@
 #!/usr/bin/python3
+"""
+Module for the face localizer node, which uses Google's 
+Mediapipe library to detect faces and publishes their position.
+"""
 import math
 import threading
 from typing import List, Tuple, Optional
 import cv2
 import numpy as np
-from map_manager import MapManager
 import tf2_ros
 import rospy
 from tf2_ros import TransformException  # pylint: disable=no-name-in-module
+from map_manager import MapManager
 import mediapipe as mp
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PointStamped, Vector3, Pose, Quaternion
@@ -24,8 +28,6 @@ class DetectedFace:
     """
     Class to store the information of a detected face.
     """
-
-    # TODO: DetectedFace identity attribute is useless, make it an id integer that sums up
 
     def __init__(
         self,
@@ -131,13 +133,13 @@ class DetectedFacesTracker:
 
     def __init__(self):
         self.tracked_faces = []
-        self.face_groups: List[FaceGroup] = []  # list of objects
+        self.face_groups: List[FaceGroup] = []
         self.group_distance_threshold: float = 0.5  # in meters
         self.valid_detection_threshold: int = (
             3  # number of detections to consider a face as a valid face
         )
         self.history_limit: int = 50  # number of detections to keep in the history
-        self.face_max_distance: float = 1.6  # in meters max distance to a valid face
+        self.face_max_distance: float = 3  # in meters max distance to a valid face
         self.greeting_max_distance: float = 0.6  # in meters max distance to a valid face
         self.map_manager: MapManager = MapManager()
 
@@ -322,6 +324,13 @@ class FaceLocalizer:
         self.already_sent_ids = []
 
     def image_callback(self, rgb_image_msg, depth_image_msg):
+        """
+        Callback for when a new image is received.
+
+        Args:
+            rgb_image_msg (np.ndarray): The RGB image.
+            depth_image_msg (np.ndarray): The depth image.
+        """
         with self.image_lock:
             self.latest_rgb_image_msg = rgb_image_msg
             self.latest_depth_image_msg = depth_image_msg
@@ -333,12 +342,14 @@ class FaceLocalizer:
         Get the pose of the detected face in the robot's coordinate system.
 
         Args:
-            bounding_box (Tuple[int, int, int, int]): The face's bounding box coordinates (x1, x2, y1, y2).
+            bounding_box (Tuple[int, int, int, int]): The face's bounding box coordinates
+            (x1, x2, y1, y2).
             dist (float): The distance to the detected face.
             time_stamp (rospy.Time): The timestamp associated with the depth image
 
         Returns:
-            Optional[Pose]: The pose of the detected face in the robot's coordinate frame or None if the transformation failed.
+            Optional[Pose]: The pose of the detected face in the robot's coordinate frame
+            or None if the transformation failed.
         """
         kinect_focal_length = 554
         x1, x2, _, _ = bounding_box
@@ -498,7 +509,8 @@ class FaceLocalizer:
 
     def find_faces(self) -> None:
         """
-        Try to detect faces in the latest RGB and depth images. Also publishes the face detection results.
+        Try to detect faces in the latest RGB and depth images.
+        Also publishes the face detection results.
         """
         with self.image_lock:
             if self.latest_rgb_image_msg is None or self.latest_depth_image_msg is None:
@@ -570,7 +582,9 @@ class FaceLocalizer:
         self.show_markers_coords(coords)
         self.show_markers(face_groups)
 
-    def quaternion_for_face_greet(self, x1, y1, x2, y2):
+    def quaternion_for_face_greet(
+        self, x1: float, y1: float, x2: float, y2: float
+    ) -> Tuple[float, float, float, float]:
         v1 = np.array([x2, y2, 0]) - np.array([x1, y1, 0])
         # in the direction of z axis
         v0 = [1, 0, 0]
@@ -616,7 +630,13 @@ class FaceLocalizer:
 
         self.markers_pub.publish(markers)
 
-    def show_markers_coords(self, coords):
+    def show_markers_coords(self, coords: List[Tuple[float, float]]):
+        """
+        Publishes markers for the detected faces.
+
+        Args:
+            coords (List[Tuple[float, float]]): Coordinates to show markers for.
+        """
         markers = MarkerArray()
         marker_num = 0
 
@@ -692,7 +712,7 @@ def main():
     """
     rospy.init_node("face_localizer", anonymous=True)
     face_finder = FaceLocalizer()
-    rospy.Timer(rospy.Duration(0.5), lambda _: face_finder.find_faces())
+    rospy.Timer(rospy.Duration(0.3), lambda _: face_finder.find_faces())
     rospy.spin()
     cv2.destroyAllWindows()
 
