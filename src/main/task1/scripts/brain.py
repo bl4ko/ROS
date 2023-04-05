@@ -206,16 +206,25 @@ class Brain:
         path = [start_vertex]
 
         while unvisited_vertices:
-            nearest_vertex = None
-            nearest_distance = sys.float_info.max
-
-            for vertex in unvisited_vertices:
-                distance = math.sqrt(
+          
+            in_sight_vertices = [vertex for vertex in unvisited_vertices if self.map_manager.has_clear_path(current_vertex, vertex)]
+            #print(in_sight_vertices)
+            if in_sight_vertices:
+                in_sight_vertices.sort(key=lambda vertex: math.sqrt(
                     (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
-                )
-                if distance < nearest_distance:
-                    nearest_distance = distance
-                    nearest_vertex = vertex
+                ))
+                nearest_vertex = in_sight_vertices[0]
+            else:
+                nearest_vertex = None
+                nearest_distance = sys.float_info.max
+
+                for vertex in unvisited_vertices:
+                    distance = math.sqrt(
+                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                    )
+                    if distance < nearest_distance:
+                        nearest_distance = distance
+                        nearest_vertex = vertex
 
             path.append(nearest_vertex)
             unvisited_vertices.remove(nearest_vertex)
@@ -269,7 +278,7 @@ class Brain:
                     quaternion = self.orientation_between_points(goal, next_goal)
 
                 self.move_to_goal(goal[0], goal[1], *quaternion)
-                self.rotate(360)
+                self.rotate(360,angular_speed=0.7)
 
                 with self.detected_faces_lock:
                     if len(self.detected_faces) > detected_faces_count:
@@ -300,6 +309,8 @@ class Brain:
 
                         detected_faces_count = len(self.detected_faces)
 
+                if detected_faces_count >= target_face_detections:
+                    break
 
             if detected_faces_count < target_face_detections:
                 rospy.loginfo("Not all faces have been detected. Will start EXPLORING")
@@ -312,9 +323,14 @@ class Brain:
 
                     rospy.loginfo(f"Found {len(self.aditional_goals )} new goals. Will continue exploring")
                     goals = self.aditional_goals
+
+            else:
+                rospy.loginfo("All faces have been detected. Will stop")
+                break
+            
                 
                 
-            rospy.loginfo("I have finished my task")
+        rospy.loginfo("I have finished my task")
 
 
 if __name__ == "__main__":

@@ -179,6 +179,9 @@ class MapManager:
             in a radius around the robot of 10 pixels around the robot
         """
         try:
+
+            self.tf_buf.can_transform('map', 'base_link', rospy.Time(0), rospy.Duration(3.0))
+
             ### Give me where is the 'base_link' frame relative to the 'map' frame at the latest available time
             coords = self.tf_buf.lookup_transform('map', 'base_link', rospy.Time(0))
             x,y = self.world_to_map_coords(coords.transform.translation.x,coords.transform.translation.y)
@@ -192,7 +195,10 @@ class MapManager:
             #(tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException)
             print(e)
 
+   
 
+
+    
     def get_get_aditional_goals(self):
         """
         Returns a list of goals from the searched space that have not been searched yet.
@@ -281,35 +287,27 @@ class MapManager:
 
         return filtered_branch_points
 
-    def bresenham_line(self, x_0, y_0, x_1, y_1):
-        points = []
-        dx, dy = abs(x_1 - x_0), abs(y_1 - y_0)
-        sx, sy = 1 if x_0 < x_1 else -1, 1 if y_0 < y_1 else -1
-        err = dx - dy
-
-        while True:
-            points.append((x_0, y_0))
-            if x_0 == x_1 and y_0 == y_1:
-                break
-            e2 = 2 * err
-            if e2 > -dy:
-                err -= dy
-                x_0 += sx
-            if e2 < dx:
-                err += dx
-                y_0 += sy
-
-        return points
 
     def has_clear_path(self, point1, point2):
+        """
+        Check if there is a clear path between two points.
+
+        The points are in world coordinates.
+        """
+
+
+        #world to map coordinates
+        point1 = self.world_to_map_coords(point1[0],point1[1])
+        point2 = self.world_to_map_coords(point2[0],point2[1])
+
         x0, y0 = point1
         x1, y1 = point2
 
-        points = self.bresenham_line(x0, y0, x1, y1)
+        points = bresenham(x0, y0, x1, y1)
 
         for point in points:
             x, y = point
-            pixel_value = self.map[x, y]
+            pixel_value = self.map[y, x]
             if pixel_value == 0:
                 return False
 
@@ -490,9 +488,12 @@ class MapManager:
         # both cost map and map must be ready
         with self.cost_map_lock:
             if not self.cost_map_ready:
+
+                print("cost map not ready")
                 return False
 
         with self.map_lock:
+            print(f"goals ready: {self.goals_ready}")
             return self.goals_ready
 
     def get_goals(self) -> List[Tuple[float, float]]:
@@ -511,9 +512,11 @@ class MapManager:
         Returns:
             Tuple[float, float]: The current robot position (x, y).
         """
+        rospy.loginfo("Waiting for amcl_pose...")
         pose_msg = rospy.wait_for_message(
             "/amcl_pose", PoseWithCovarianceStamped, timeout=5.0
         )
+        rospy.loginfo("Received amcl_pose.")
         robot_position = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
         return robot_position
 
