@@ -42,9 +42,14 @@ class Brain:
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
+        self.searched_space_timer = rospy.Timer(
+            rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
+        )
+
         self.is_moving = False
         self.detected_faces = []
         self.detected_faces_lock = threading.Lock()
+        self.aditional_goals = []
 
     def init_planner(self):
         """
@@ -68,6 +73,9 @@ class Brain:
         Publishes markers of initail goals on the map.
         """
         goals = self.map_manager.get_goals()
+        if len(self.aditional_goals) > 0:
+            goals.extend(self.aditional_goals)
+
         self.map_manager.publish_markers_of_goals(goals)
 
     def faces_callback(self, msg: DetectedFaces):
@@ -240,11 +248,16 @@ class Brain:
         the face location and then continues to the next keypoint.
         """
 
+        detected_faces_count = 0
+        target_face_detections = 5 #TODO
+
+        goals = self.map_manager.get_goals()
+
         while not rospy.is_shutdown():
-            goals = self.map_manager.get_goals()
+            
             optimized_path = self.nearest_neighbor_path(goals, goals[0])
 
-            detected_faces_count = 0
+          
 
             for i, goal in enumerate(optimized_path):
                 rospy.loginfo(f"Moving to goal {i + 1}/{len(optimized_path)}: {goal}")
@@ -287,6 +300,20 @@ class Brain:
 
                         detected_faces_count = len(self.detected_faces)
 
+
+            if detected_faces_count < target_face_detections:
+                rospy.loginfo("Not all faces have been detected. Will start EXPLORING")
+                #get new goals now that we have explored the map
+                self.aditional_goals = self.map_manager.get_get_aditional_goals()
+                if len(self.aditional_goals) < 1:
+                    rospy.loginfo("No new goals found. Will stop i failed to find all faces")
+                    break
+                else:
+
+                    rospy.loginfo(f"Found {len(self.aditional_goals )} new goals. Will continue exploring")
+                    goals = self.aditional_goals
+                
+                
             rospy.loginfo("I have finished my task")
 
 

@@ -23,6 +23,8 @@ from bresenham import bresenham  # pylint: disable=import-error
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 import math
+import tf2_ros
+
 
 # This script retrieves the map from the map_server and saves it in a 2D array.
 # It also uses ekeletonize to get most important points to visit in the map.
@@ -51,7 +53,9 @@ class MapManager:
         # )
         self.map_lock = threading.Lock()  # Add a lock for the map attribute
         self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
-        self.marker_publisher = rospy.Publisher("goal_markers", MarkerArray, queue_size=100)
+        self.marker_publisher = rospy.Publisher(
+            "goal_markers", MarkerArray, queue_size=100
+        )
         self.goals_ready = False
         self.goal_points = []
         self.map_transform = TransformStamped()
@@ -71,6 +75,10 @@ class MapManager:
         )
         rospy.loginfo("Map and cost map messages received.")
 
+        self.searched_space = None
+        self.tf_buf = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
+
         # Process the map and cost map
         # first is cost map because it is used in map_callback
         self.cost_map_callback(cost_map_msg)
@@ -87,7 +95,9 @@ class MapManager:
             self.size_x = map_data.info.width
             self.size_y = map_data.info.height
 
-            rospy.loginfo("Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y)))
+            rospy.loginfo(
+                "Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y))
+            )
 
             if self.size_x < 3 or self.size_y < 3:
                 rospy.loginfo(
@@ -130,10 +140,106 @@ class MapManager:
             # self.visualize_branch_points()
 
             self.visualize(
-                self.map, self.skeleton_overlay, self.branch_points, self.accessible_costmap
+                self.map,
+                self.skeleton_overlay,
+                self.branch_points,
+                self.accessible_costmap,
             )
 
+            self.init_searched_space(self.accessible_costmap, self.branch_points)
+
             self.init_goals()
+
+    def init_searched_space(self, accessible_costmap, branch_points):
+        """
+        Initialize the searched space to be the size of the accessible costmap
+        and set all points that are not accessible to -1.
+        60 = not searched
+        255 = searched
+        0 = not accessible
+        """
+
+        # initialize searched space
+        self.searched_space = np.zeros((self.size_y, self.size_x))
+
+        # set all points that are not accessible to -1
+        for y in range(self.size_y):
+            for x in range(self.size_x):
+                if not self.map[y, x] == 255: # free space
+                    self.searched_space[y, x] = 0
+
+                else:
+                    self.searched_space[y, x] = 60
+
+        
+
+    def update_searched_space(self):
+        """
+            gets the current position of the robot and updates the searched space
+            in a radius around the robot of 10 pixels around the robot
+        """
+        try:
+            ### Give me where is the 'base_link' frame relative to the 'map' frame at the latest available time
+            coords = self.tf_buf.lookup_transform('map', 'base_link', rospy.Time(0))
+            x,y = self.world_to_map_coords(coords.transform.translation.x,coords.transform.translation.y)
+            #print("x,y",x,y)
+            cv2.circle(self.searched_space, (x,y), 10, 255, -1)
+            cv2.imwrite("searched_spaceq.png", np.flip(self.searched_space,0))
+            self.get_get_aditional_goals()
+
+
+        except Exception as e:
+            #(tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException)
+            print(e)
+
+
+    def get_get_aditional_goals(self):
+        """
+        Returns a list of goals from the searched space that have not been searched yet.
+        """
+        #get the unsarched space
+        unsearched_space = self.searched_space.copy()
+        unsearched_space[unsearched_space == 255] = 0
+        unsearched_space[unsearched_space == 60] = 255
+        unsearched_space[unsearched_space == 0] = 0
+        unsearched_space.astype(np.uint8)
+
+        # convert to 8-bit single-channel image
+        unsearched_space = cv2.convertScaleAbs(unsearched_space)
+
+        #get centroids of the unsearched space
+        ret, labels, stats, centroids = cv2.connectedComponentsWithStats(unsearched_space)
+
+        #get the centroids that are not the background
+        centroids = centroids[1:]
+
+        additional_goals = []
+
+        #add a dot to the unsearched space
+        for i, centroid in enumerate(centroids):
+
+            #has to be in the map bounds
+            # #has to include more than 40 pixels
+            # print("centroid",stats[i])
+
+            if self.map[int(centroid[1]),int(centroid[0])] == 255 and stats[i+1][4] > 40:
+                additional_goals.append((centroid[0],centroid[1]))
+                cv2.circle(unsearched_space, (int(centroid[0]),int(centroid[1])), 1, 60, -1)
+
+        
+        cv2.imwrite("unsearched_space.png", np.flip(unsearched_space,0))
+
+        #convert to map coordinates
+        toret = []
+        for goal in additional_goals:
+            x,y = self.map_to_world_coords(goal[0],goal[1])
+            toret.append((x,y))
+
+        return toret
+
+
+
+
 
     def distance(self, point1, point2):
         return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
@@ -146,7 +252,8 @@ class MapManager:
         for point in self.branch_points:
             # get cost of point
             if not (
-                self.in_map_bounds(point[0], point[1]) and self.can_move_to(point[0], point[1])
+                self.in_map_bounds(point[0], point[1])
+                and self.can_move_to(point[0], point[1])
             ):
                 print("Point is not in map bounds or can not move to", point)
                 continue
@@ -247,7 +354,9 @@ class MapManager:
 
         for other_point in other_points:
             distance = np.linalg.norm(np.array(point) - np.array(other_point))
-            if distance <= distance_threshold and self.has_clear_path(point, other_point):
+            if distance <= distance_threshold and self.has_clear_path(
+                point, other_point
+            ):
                 return True
 
         return False
@@ -325,7 +434,9 @@ class MapManager:
             cost_map_resolution = map_data.info.resolution
             rospy.loginfo("cost_map resolution: %s" % str(cost_map_resolution))
 
-            self.cost_map = np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
+            self.cost_map = (
+                np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
+            )
 
             # get correct numbers
             self.cost_map[self.cost_map == -1] = 127
@@ -400,7 +511,9 @@ class MapManager:
         Returns:
             Tuple[float, float]: The current robot position (x, y).
         """
-        pose_msg = rospy.wait_for_message("/amcl_pose", PoseWithCovarianceStamped, timeout=5.0)
+        pose_msg = rospy.wait_for_message(
+            "/amcl_pose", PoseWithCovarianceStamped, timeout=5.0
+        )
         robot_position = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
         return robot_position
 
@@ -417,7 +530,9 @@ class MapManager:
         robot_x, robot_y = self.get_robot_position()
 
         # Sort goals by distance to the robot
-        goals.sort(key=lambda goal: ((goal[0] - robot_x) ** 2 + (goal[1] - robot_y) ** 2))
+        goals.sort(
+            key=lambda goal: ((goal[0] - robot_x) ** 2 + (goal[1] - robot_y) ** 2)
+        )
 
         self.goal_points = goals
         self.publish_markers_of_goals(goals)
@@ -524,7 +639,9 @@ class MapManager:
         # Apply thresholding to identify the optimal corners
         # Decrease the threshold factor to detect more corners (e.g., from 0.32 to 0.2)
         threshold_value = 0.12 * harris_corners_dilated.max()
-        threshold_image = cv2.threshold(harris_corners_dilated, threshold_value, 255, 0)[1]
+        threshold_image = cv2.threshold(
+            harris_corners_dilated, threshold_value, 255, 0
+        )[1]
         threshold_image_uint8 = np.uint8(threshold_image)
 
         # Find connected components and their centroids
@@ -539,7 +656,9 @@ class MapManager:
         )
 
         # Extract the branch point coordinates from the refined corners
-        branch_points = [(int(corner[0]), int(corner[1])) for corner in refined_corners[1:]]
+        branch_points = [
+            (int(corner[0]), int(corner[1])) for corner in refined_corners[1:]
+        ]
         return branch_points
 
     def visualize_branch_points(self) -> None:
@@ -618,7 +737,9 @@ class MapManager:
                 x = backup_candidate[0]
                 y = backup_candidate[1]
 
-                x_close, y_close = self.nearest_nonzero_to_point(self.accessible_costmap, x, y)
+                x_close, y_close = self.nearest_nonzero_to_point(
+                    self.accessible_costmap, x, y
+                )
                 candidates_reachable.append((x_close, y_close))
                 print(candidates_reachable)
 
