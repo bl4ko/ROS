@@ -1,0 +1,12 @@
+<launch>
+
+  <arg name="node_start_delay" default="2.0" /> 
+
+  <node pkg="course_project" type="detect_rings" name="detect_rings"  output="screen"/>
+
+  <node pkg="course_project" type="cylinder_detector" name="cylinder_detector"/>
+
+  <node pkg="course_project" type="brain.py" name="brain"  output="screen" launch-prefix="bash -c 'sleep $(arg node_start_delay); $0 $@' "/>
+
+</launch>
+
