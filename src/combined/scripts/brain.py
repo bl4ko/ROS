@@ -11,7 +11,7 @@ import threading
 from typing import Tuple
 from map_manager import MapManager
 import rospy
-from task1.msg import DetectedFaces
+from combined.msg import DetectedFaces
 import actionlib
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Twist
@@ -294,16 +294,13 @@ class Brain:
                             f"I have detected {len(self.detected_faces) - detected_faces_count} new"
                             " faces during this iteration."
                         )
-                        
-                        
-                        #get new faces based on group id! 
+
+                        # get new faces based on group id!
                         new_faces = [
                             face
                             for face in self.detected_faces
                             if face.group_id not in detected_faces_group_ids
                         ]
-
-
 
                         for new_face in new_faces:
                             self.move_to_goal(

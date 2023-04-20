@@ -28,7 +28,7 @@
 #include <laser_geometry/laser_geometry.h>
 
 // for custom messages about greeting the detected cylinder
-#include "course_project/CylinderGreetInstructions.h"
+#include "combined/CylinderGreetInstructions.h"
 
 // for laser projection
 //laser_geometry::LaserProjection projector_;
@@ -234,7 +234,7 @@ void publish_new_confirmed_object(geometry_msgs::Pose pose, std::string color_st
     std::cout << "Publishing unique cylinder with color: " << color_str << std::endl;
 
     // publish greet instructions to brain
-    course_project::CylinderGreetInstructions msg;
+    combined::CylinderGreetInstructions msg;
     msg.object_pose = pose;
     msg.object_id = marker_id - 1;
     msg.object_color = color_str;
@@ -1766,7 +1766,7 @@ main(int argc, char ** argv) {
     // TODO: add custom message for informing
     brain_publisher = nh.advertise < geometry_msgs::Pose > ("cylinder_greet_instructions", 1);
 
-    greet_publisher = nh.advertise<course_project::CylinderGreetInstructions>("unique_cylinder_greet", 1000);
+    greet_publisher = nh.advertise<combined::CylinderGreetInstructions>("unique_cylinder_greet", 1000);
 
     // Spin
     ros::spin();

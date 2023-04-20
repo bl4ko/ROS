@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <package>
-    <name>course_project</name>
+    <name>combined</name>
     <version>0.0.0</version>
-    <description>The course_project package</description>
-    <maintainer email="machine_mentors@student.uni-lj.si">teamlota</maintainer>
+    <description>The combined project package</description>
+    <maintainer email="machine_mentors@student.uni-lj.si">team upsilon</maintainer>
     <license>BSD</license>
     <build_depend>roscpp</build_depend>
     <build_depend>cv_bridge</build_depend>

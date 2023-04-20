@@ -1,0 +1,5 @@
+int32 object_id
+geometry_msgs/Pose object_pose
+geometry_msgs/Pose robot_detection_pose
+geometry_msgs/Pose greet_pose
+string object_color
