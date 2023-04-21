@@ -6,17 +6,33 @@ to all of the keypoints and do a 360 degree rotation at each of them.
 """
 
 import math
+import signal
 import sys
 import threading
 from typing import Tuple
-from map_manager import MapManager
-import rospy
-from combined.msg import DetectedFaces
 import actionlib
+import rospy
+from map_manager import MapManager
+from sound import SoundPlayer
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Twist
 from tf.transformations import quaternion_from_euler
-from sound import SoundPlayer
+from combined.msg import DetectedFaces
+
+
+def signal_handler(_: signal.Signals) -> None:
+    """
+    Handles the SIGINT signal, which is sent when the user presses Ctrl+C.
+
+    Args:
+        sig (signal.Signals): The signal that was received.
+    """
+    rospy.loginfo("Program interrupted, shutting down.")
+    rospy.signal_shutdown("SIGINT received")
+    sys.exit(0)
+
+
+signal.signal(signal.SIGINT, signal_handler)
 
 
 class Brain:

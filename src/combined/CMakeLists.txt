@@ -17,18 +17,26 @@ add_message_files(DIRECTORY msg
   FILES
   UniqueFaceCoords.msg
   DetectedFaces.msg
+  CylinderGreetInstructions.msg
 )
 
-generate_messages(DEPENDENCIES std_msgs 
-geometry_msgs sensor_msgs)
+generate_messages(DEPENDENCIES std_msgs geometry_msgs sensor_msgs)
 
 find_package( OpenCV REQUIRED )
 
+find_package( PCL REQUIRED )
+
 catkin_package()
 
-#include_directories(include ${catkin_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+add_executable(cylinder_detector src/cylinder_detector.cpp)
+
+target_link_libraries(cylinder_detector ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
+
+include_directories(
+    ${catkin_INCLUDE_DIRS} 
+    ${OpenCV_INCLUDE_DIRS}
+    ${PCL_INCLUDE_DIRS}
+)
 #add_executable(map_goals src/map_goals.cpp)
 #target_link_libraries(map_goals ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
-
 #catkin_install_python(PROGRAMS scripts/detect_rings DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
-
