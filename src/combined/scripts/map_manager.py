@@ -17,14 +17,15 @@ from geometry_msgs.msg import (
     Quaternion,
     TransformStamped,
     PoseWithCovarianceStamped,
+    Pose,
 )
 from visualization_msgs.msg import Marker, MarkerArray
 from tf import transformations as t
-from tf.transformations import euler_from_quaternion
 from bresenham import bresenham  # pylint: disable=import-error
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 import tf2_ros
+from tf.transformations import quaternion_from_euler
 
 
 # This script retrieves the map from the map_server and saves it in a 2D array.
@@ -42,47 +43,48 @@ class MapManager:
     A class for managaing a map, processing it and publishing markers for points to visit.
     """
 
-    def __init__(self, show_plot=False):
-        self.map = None  # Map from /map topic
-        self.cost_map = None  # Cost map from move_base/global_costmap/costmap
-        self.accessible_costmap = None  # Accesible points in the cost map
-        self.skeleton_overlay = None  # Overlay of the skeleton on the map
-        self.branch_points = None  # Branch points in the skeleton
-        # self.map_subscriber = rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
-        # self.cost_map_subscriber = rospy.Subscriber(
-        #     "/move_base/global_costmap/costmap", OccupancyGrid, self.cost_map_callback
-        # )
-        self.map_lock = threading.Lock()  # Add a lock for the map attribute
-        self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
-        self.marker_publisher = rospy.Publisher("goal_markers", MarkerArray, queue_size=100)
-        self.goals_ready = False
-        self.goal_points = []
-        self.map_transform = TransformStamped()
-        self.map_resolution = None
-        self.size_x = None
-        self.size_y = None
-        self.map_frame_id = None
-        self.cost_map_ready = False
-        self.bridge = CvBridge()
-        self.image_pub = rospy.Publisher("/map_manager_info", Image, queue_size=10)
+    def __init__(self, show_plot=False, init_node=True):
+        if init_node:
+            self.map = None  # Map from /map topic
+            self.cost_map = None  # Cost map from move_base/global_costmap/costmap
+            self.accessible_costmap = None  # Accesible points in the cost map
+            self.skeleton_overlay = None  # Overlay of the skeleton on the map
+            self.branch_points = None  # Branch points in the skeleton
+            # self.map_subscriber = rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
+            # self.cost_map_subscriber = rospy.Subscriber(
+            #     "/move_base/global_costmap/costmap", OccupancyGrid, self.cost_map_callback
+            # )
+            self.map_lock = threading.Lock()  # Add a lock for the map attribute
+            self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
+            self.marker_publisher = rospy.Publisher("goal_markers", MarkerArray, queue_size=100)
+            self.goals_ready = False
+            self.goal_points = []
+            self.map_transform = TransformStamped()
+            self.map_resolution = None
+            self.size_x = None
+            self.size_y = None
+            self.map_frame_id = None
+            self.cost_map_ready = False
+            self.bridge = CvBridge()
+            self.image_pub = rospy.Publisher("/map_manager_info", Image, queue_size=10)
 
-        # wait for messages
-        rospy.loginfo("Waiting for map and cost map messages...")
-        map_msg = rospy.wait_for_message("/map", OccupancyGrid, timeout=100)
-        cost_map_msg = rospy.wait_for_message(
-            "/move_base/global_costmap/costmap", OccupancyGrid, timeout=100
-        )
-        rospy.loginfo("Map and cost map messages received.")
+            # wait for messages
+            rospy.loginfo("Waiting for map and cost map messages...")
+            map_msg = rospy.wait_for_message("/map", OccupancyGrid, timeout=100)
+            cost_map_msg = rospy.wait_for_message(
+                "/move_base/global_costmap/costmap", OccupancyGrid, timeout=100
+            )
+            rospy.loginfo("Map and cost map messages received.")
 
-        self.searched_space = None
-        self.tf_buf = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
-        self.show_plot = show_plot
+            self.searched_space = None
+            self.tf_buf = tf2_ros.Buffer()
+            self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
+            self.show_plot = show_plot
 
-        # Process the map and cost map
-        # first is cost map because it is used in map_callback
-        self.cost_map_callback(cost_map_msg)
-        self.map_callback(map_msg)
+            # Process the map and cost map
+            # first is cost map because it is used in map_callback
+            self.cost_map_callback(cost_map_msg)
+            self.map_callback(map_msg)
 
     def map_callback(self, map_data) -> None:
         """
@@ -850,6 +852,93 @@ class MapManager:
         y_res = round(transformed_pt.point.y / self.map_resolution)
 
         return (x_res, y_res)
+
+    def quaternion_from_points(self, x1: float, y1: float, x2: float, y2: float) -> Quaternion:
+        """
+        Returns quaternion representing rotation so that the
+        robot will be pointing prom (x1,y1)to (x2,y2)
+
+        Args:
+            x1 (float): x coordinate of first point
+            y1 (float): y coordinate of first point
+            x2 (float): x coordinate of second point
+            y2 (float): y coordinate of second point
+            
+        Returns:
+            Quaternion: quaternion representing rotation
+        """
+        v1 = np.array([x2, y2, 0]) - np.array([x1, y1, 0])
+        # in the direction of z axis
+        v0 = [1, 0, 0]
+
+        # compute yaw - rotation around z axis
+        yaw = np.arctan2(v1[1], v1[0]) - np.arctan2(v0[1], v0[0])
+
+        # rospy.loginfo("Yaw: %s" % str(yaw * 57.2957795))
+
+        q = quaternion_from_euler(0, 0, yaw)
+
+        # rospy.loginfo("Got quaternion: %s" % str(q))
+
+        return q
+
+    def get_nearest_accessible_point(self, x: float, y: float) -> Tuple[float, float]:
+        """
+        Returns the indices of the accessible point closest to the point (x, y) in the costmap.
+
+        Args:
+            x (float): X-coordinate of the point.
+            y (float): Y-coordinate of the point.
+
+        Returns:
+            Tuple[float, float]: The indices of the accessible point closest to the input point.
+        """
+        (c_x, c_y) = self.world_to_map_coords(x, y)
+
+        x_close, y_close = self.nearest_nonzero_to_point(self.accessible_costmap, c_x, c_y)
+
+        (x_transformed, y_transformed) = self.map_to_world_coords(x_close, y_close)
+        return x_transformed, y_transformed
+
+    def get_object_greet_pose(self, x_obj: float, y_obj: float) -> Pose:
+        """
+        Returns pose with proper greet location and orientation
+        for ring / cylinder at x_obj, y_obj.
+        """
+        # compute position
+        x_greet, y_greet = self.get_nearest_accessible_point(x_obj, y_obj)
+
+        # compute orientation from greet point to object point
+        q_dest = self.quaternion_from_points(x_greet, y_greet, x_obj, y_obj)
+
+        # create pose for greet
+        pose = Pose()
+        pose.position.x = x_greet
+        pose.position.y = y_greet
+        pose.position.z = 0
+
+        # so that there are no warnings
+        pose.orientation.x = q_dest[0]
+        pose.orientation.y = q_dest[1]
+        pose.orientation.z = q_dest[2]
+        pose.orientation.w = q_dest[3]
+
+        return pose
+
+    def euclidean_distance(self, x1: float, y1: float, x2: float, y2: float) -> float:
+        """
+        Returns euclidean distance between two points.
+
+        Args:
+            x1 (float): x coordinate of first point
+            y1 (float): y coordinate of first point
+            x2 (float): x coordinate of second point
+            y2 (float): y coordinate of second point
+
+        Returns:
+            float: euclidean distance between two points
+        """
+        return np.linalg.norm(np.array([x1, y1]) - np.array([x2, y2]))
 
 
 def test():

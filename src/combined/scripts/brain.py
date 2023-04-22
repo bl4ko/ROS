@@ -10,6 +10,7 @@ import signal
 import sys
 import threading
 from typing import Tuple
+from types import FrameType
 import actionlib
 import rospy
 from map_manager import MapManager
@@ -20,17 +21,20 @@ from tf.transformations import quaternion_from_euler
 from combined.msg import DetectedFaces
 
 
-def signal_handler(_: signal.Signals) -> None:
+def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
     """
     Handles the SIGINT signal, which is sent when the user presses Ctrl+C.
 
     Args:
         sig (signal.Signals): The signal that was received.
+        frame (FrameType): The current stack frame.
     """
-    rospy.loginfo("Program interrupted, shutting down.")
-    rospy.signal_shutdown("SIGINT received")
+    signal_name = signal.Signals(sig).name
+    frame_info = f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
+    rospy.loginfo(f"Program interrupted by {signal_name} signal, shutting down.")
+    rospy.loginfo(f"Signal received at: {frame_info}")
+    rospy.signal_shutdown(f"{signal_name} received")
     sys.exit(0)
-
 
 signal.signal(signal.SIGINT, signal_handler)
 
@@ -43,7 +47,7 @@ class Brain:
     """
 
     def __init__(self):
-        self.map_manager = MapManager(show_plot=True)
+        self.map_manager = MapManager(show_plot=False)
         rospy.loginfo("Waiting for map manager to be ready...")
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
@@ -63,7 +67,7 @@ class Brain:
             rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
         )
 
-        self.is_moving = False
+        self.is_ready = False
         self.detected_faces = []
         self.detected_faces_lock = threading.Lock()
         self.sound_player = SoundPlayer()
@@ -362,5 +366,6 @@ class Brain:
 if __name__ == "__main__":
     rospy.init_node("brain")
     brain = Brain()
+    brain.is_ready = True
     brain.think()
     rospy.spin()
