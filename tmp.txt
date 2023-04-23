@@ -1,0 +1,83 @@
+            for candidate in candidates:
+                # the centers of the ellipses
+                e_1 = candidate[0]
+                e_2 = candidate[1]
+
+                # drawing the ellipses on the image
+                cv2.ellipse(rgb_img, e_1, (0, 255, 0), 2)
+                cv2.ellipse(rgb_img, e_2, (0, 255, 0), 2)
+
+                size = (e_1[1][0] + e_1[1][1]) / 2
+                center = (e_1[0][1], e_1[0][0])
+
+                x1 = int(center[0] - size / 2)
+                x2 = int(center[0] + size / 2)
+                x_min = x1 if x1 > 0 else 0
+                x_max = x2 if x2 < rgb_img.shape[0] else rgb_img.shape[0]
+
+                y1 = int(center[1] - size / 2)
+                y2 = int(center[1] + size / 2)
+                y_min = y1 if y1 > 0 else 0
+                y_max = y2 if y2 < rgb_img.shape[1] else rgb_img.shape[1]
+
+                # For outer ellipse
+                size_outer = (e_2[1][0] + e_2[1][1]) / 2
+                center_outer = (e_1[0][1], e_1[0][0])
+
+                x1_outer = int(center_outer[0] - size_outer / 2)
+                x2_outer = int(center_outer[0] + size_outer / 2)
+                x_min_outer = x1_outer if x1_outer > 0 else 0
+                x_max_outer = x2_outer if x2_outer < rgb_img.shape[0] else rgb_img.shape[0]
+
+                y1_outer = int(center_outer[1] - size_outer / 2)
+                y2_outer = int(center_outer[1] + size_outer / 2)
+                y_min_outer = y1_outer if y1_outer > 0 else 0
+                y_max_outer = y2_outer if y2_outer < rgb_img.shape[1] else rgb_img.shape[1]
+
+                center_x = round((x_min + x_max) / 2)
+                center_y = round((y_min + y_max) / 2)
+
+                center_neigh = 2
+                center_image_depth_slice = depth_img[
+                    (center_x - center_neigh) : (center_x + center_neigh),
+                    (center_y - center_neigh) : (center_y + center_neigh),
+                ]
+
+                ellipse_mask = self.ellipse2array(e_1, e_2, rgb_img.shape[0], rgb_img.shape[1])
+                depth_ring_content = float(np.nanmedian(depth_img[ellipse_mask == 255]))
+
+                if len(center_image_depth_slice) <= 0:
+                    continue
+
+                depth_ring_center = (
+                    np.NaN
+                    if np.all(center_image_depth_slice != center_image_depth_slice)
+                    else np.nanmean(center_image_depth_slice)
+                )
+
+                # Parameter to consider a hole in the middle if depth difference
+                # greater than this threshold
+                # from experience around 1.0 is usually the ones with holes
+                # without them difference is 0
+                depth_difference_threshold = 0.1
+                depth_difference = abs(depth_ring_content - depth_ring_center)
+
+                rospy.loginfo(f"Depth difference: {str(depth_difference)}")
+
+                # if there is no hole in the middle -> proceed to next one
+                if depth_difference < depth_difference_threshold:
+                    # candidate not valid
+                    continue
+
+                # if object too far away -> do not consider detected (for better pose estimation)
+                if depth_ring_content > self.ring_max_distance:
+                    continue
+
+                # From here on we have a valid detection -> true ring
+                ring_pose = self.get_pose(e_1, depth_ring_content, depth_img_time)
+
+                if ring_pose is not None:
+                    rospy.loginfo("Valid ring pose found!")
+                    ring_img = rgb_img[x_min_outer:x_max_outer, y_min_outer:y_max_outer]
+                    self.add_new_ring(ring_img=ring_img, ring_pose=ring_pose)
+                    self.print_ring_groups()
