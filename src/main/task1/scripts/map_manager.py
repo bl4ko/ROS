@@ -67,6 +67,11 @@ class MapManager:
         self.cost_map_ready = False
         self.bridge = CvBridge()
         self.image_pub = rospy.Publisher("/map_manager_info", Image, queue_size=10)
+        
+
+        
+
+
 
         # wait for messages
         rospy.loginfo("Waiting for map and cost map messages...")
@@ -85,6 +90,8 @@ class MapManager:
         # first is cost map because it is used in map_callback
         self.cost_map_callback(cost_map_msg)
         self.map_callback(map_msg)
+
+        
 
     def map_callback(self, map_data) -> None:
         """
@@ -129,7 +136,7 @@ class MapManager:
             # This makes it safer for the robot to navigate
             self.map = self.map.astype(np.uint8)
             kernel = np.ones((3, 3), np.uint8)
-            semi_safe_map = cv2.erode(self.map, kernel, iterations=4)
+            semi_safe_map = cv2.erode(self.map, kernel, iterations=1)
             self.map = semi_safe_map
 
             # Find the skeleton overlay of the map
@@ -402,7 +409,7 @@ class MapManager:
         img = cv2.flip(img, 0)
 
         # zoom into center for better visualization
-        zoomed = img[160 + 20 : 325, 160 + 20 : 325]
+        zoomed = img[200:300, 0:100]
         img = zoomed
 
         # save image
@@ -465,7 +472,7 @@ class MapManager:
             self.accessible_costmap = np.uint8(self.accessible_costmap)
             # kernel = np.ones((3, 3), np.uint8)
             kernel = np.ones((3, 3), np.uint8)
-            self.accessible_costmap = cv2.erode(self.accessible_costmap, kernel)
+            #self.accessible_costmap = cv2.erode(self.accessible_costmap, kernel)
 
             # cv2.imshow("cost_map", self.cost_map)
 
@@ -475,8 +482,8 @@ class MapManager:
             self.cost_map_ready = True
 
             # save cost map
-            # cv2.imwrite("cost_map.png", self.cost_map)
-            # cv2.imwrite("accessible_costmap.png", self.accessible_costmap)
+            cv2.imwrite("cost_map.png", self.cost_map)
+            cv2.imwrite("accessible_costmap.png", self.accessible_costmap)
 
     def get_map(self) -> np.ndarray:
         """
@@ -747,7 +754,7 @@ class MapManager:
                 # in case no candidates are on valid positions
                 # print("Searching for backup candidates")
                 backup_candidate = candidates[0]
-                x = backup_candidate[0] 
+                x = backup_candidate[0]
                 y = backup_candidate[1]
 
                 x_close, y_close = self.nearest_nonzero_to_point(

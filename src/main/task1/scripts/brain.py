@@ -313,9 +313,9 @@ class Brain:
 
                 self.move_to_goal(goal[0], goal[1], *quaternion)
 
-                for i in range(12):
-                    self.rotate(30, angular_speed=1.0)
-                    rospy.sleep(2.5)
+                
+                self.rotate(120, angular_speed=0.1)
+                    
 
                 with self.detected_faces_lock:
                     if len(self.detected_faces) > detected_faces_count:
@@ -341,10 +341,15 @@ class Brain:
                                 new_face.rr_w,
                             )
 
+                           
                             rospy.loginfo(f"Greeting face id: {new_face.group_id}")
                             self.sound_player.play_greeting_sound()
                             rospy.sleep(2)
                             rospy.loginfo(f"Done greeting face id: {new_face.group_id}")
+                            for i in range(4):
+                                self.rotate(30, angular_speed=0.1)
+                                rospy.sleep(3.5)
+
                             detected_faces_group_ids.add(new_face.group_id)
 
                         detected_faces_count = len(self.detected_faces)

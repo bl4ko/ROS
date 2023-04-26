@@ -13,7 +13,7 @@ import rospy
 from tf2_ros import TransformException  # pylint: disable=no-name-in-module
 from map_manager import MapManager
 import mediapipe as mp
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from geometry_msgs.msg import PointStamped, Vector3, Pose, Quaternion
 from cv_bridge import CvBridge, CvBridgeError
 from visualization_msgs.msg import Marker, MarkerArray
@@ -139,14 +139,14 @@ class DetectedFacesTracker:
     def __init__(self):
         self.tracked_faces = []
         self.face_groups: List[FaceGroup] = []
-        self.group_distance_threshold: float = 0.7  # in meters
+        self.group_distance_threshold: float = 0.4  # in meters
         self.valid_detection_threshold: int = (
-            5  # number of detections to consider a face as a valid face
+            3  # number of detections to consider a face as a valid face
         )
         self.history_limit: int = 100  # number of detections to keep in the history
         self.face_max_distance: float = 1.5  # in meters max distance to a valid face
         self.greeting_max_distance: float = (
-            0.8  # in meters max distance to a valid face
+            1.0  # in meters max distance to a valid face
         )
         self.map_manager: MapManager = MapManager()
 
@@ -265,7 +265,7 @@ class DetectedFacesTracker:
             for g in self.face_groups
             if g.detections >= self.valid_detection_threshold
         ):
-            avg_pose = group.avg_pose
+            face_avg_pose = group.avg_pose
             total_weight = 0
             weighted_greet_locations = np.zeros(2)
 
@@ -273,11 +273,11 @@ class DetectedFacesTracker:
             for face in group.faces:
                 robot_x, robot_y = face.robot_x, face.robot_y
                 face_pose_left, face_pose_right = face.pose_left, face.pose_right
-                confidence, face_distance = face.confidence, face.face_distance
+                confidence, dist_robot_face = face.confidence, face.face_distance
 
-                xg, yg = self.map_manager.get_face_greet_location(
-                    avg_pose.position.x,
-                    avg_pose.position.y,
+                x_greet_loc, y_greet_loc = self.map_manager.get_face_greet_location(
+                    face_avg_pose.position.x,
+                    face_avg_pose.position.y,
                     robot_x,
                     robot_y,
                     face_pose_left,
@@ -285,13 +285,25 @@ class DetectedFacesTracker:
                 )
 
                 greet_to_face_distance = np.linalg.norm(
-                    np.array([xg, yg])
-                    - np.array([avg_pose.position.x, avg_pose.position.y])
+                    np.array([x_greet_loc, y_greet_loc])
+                    - np.array([face_avg_pose.position.x, face_avg_pose.position.y])
                 )
 
+                dist_robot_greet = np.linalg.norm(
+                    np.array([x_greet_loc, y_greet_loc]) - np.array([robot_x, robot_y])
+                )
+
+                if dist_robot_greet > dist_robot_face:
+                    continue
+
+                if abs(dist_robot_face - dist_robot_greet) < 0.1:
+                    continue
+
                 # Weight the greet location based on the confidence and the inverse of the distance
-                weight = confidence / (face_distance * greet_to_face_distance * 100)
-                weighted_greet_locations += np.array([xg, yg]) * weight
+                weight = confidence / (dist_robot_face)
+                weighted_greet_locations += (
+                    np.array([x_greet_loc, y_greet_loc]) * weight
+                )
                 total_weight += weight
 
             # Normalize the average face greet location by the total weight
@@ -300,7 +312,7 @@ class DetectedFacesTracker:
             # Check distance of greet location to face
             greet_to_face_distance = np.linalg.norm(
                 np.array(avg_face_greet_location)
-                - np.array([avg_pose.position.x, avg_pose.position.y])
+                - np.array([face_avg_pose.position.x, face_avg_pose.position.y])
             )
 
             if greet_to_face_distance <= self.greeting_max_distance:
@@ -348,7 +360,9 @@ class FaceLocalizer:
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
         self.image_lock = threading.Lock()
-        self.rgb_image_sub = message_filters.Subscriber("/camera/rgb/image_raw", Image)
+        self.rgb_image_sub = message_filters.Subscriber(
+            "/camera/rgb/image_raw", Image
+        )
         self.depth_image_sub = message_filters.Subscriber(
             "/camera/depth/image_raw", Image
         )
@@ -434,7 +448,7 @@ class FaceLocalizer:
         is_real_face = False
 
         with mp.solutions.face_detection.FaceDetection(
-            model_selection=detection_range, min_detection_confidence=0.8
+            model_selection=detection_range, min_detection_confidence=0.7
         ) as face_detection:
             rgb_converted_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
             rgb_converted_image.flags.writeable = False
@@ -445,7 +459,7 @@ class FaceLocalizer:
             if detection_results.detections:
                 for detection in detection_results.detections:
                     confidence_score = detection.score[0]
-                    if confidence_score > 0.85:
+                    if confidence_score > 0.70:
                         print("Face detected with high confidence: ", confidence_score)
 
                         bounding_box = detection.location_data.relative_bounding_box
@@ -580,6 +594,11 @@ class FaceLocalizer:
 
             try:
                 rgb_image = self.bridge.imgmsg_to_cv2(self.latest_rgb_image_msg, "bgr8")
+                # np_arr = np.fromstring(self.latest_rgb_image_msg.data, np.uint8)
+                # rgb_image = cv2.imdecode(np_arr,cv2.IMREAD_COLOR)
+
+                # #save image
+                cv2.imwrite('rgb_image.png', rgb_image)
             except CvBridgeError as bridge_error:
                 rospy.logerr(bridge_error)
 
