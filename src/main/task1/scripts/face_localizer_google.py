@@ -100,8 +100,8 @@ class FaceGroup:
         dx = x_right - x_left
         dy = y_right - y_left
 
-        perp_dx = -dy / ((dy * dy + dx * dx) ** 0.5)
-        perp_dy = dx / ((dy * dy + dx * dx) ** 0.5)
+        perp_dx = -dy / (((dy * dy + dx * dx) ** 0.5) + 1e-6)
+        perp_dy = dx / (((dy * dy + dx * dx) ** 0.5) + 1e-6)
 
         return (perp_dx, perp_dy)
 
@@ -109,8 +109,12 @@ class FaceGroup:
         """
         Updates the average pose of the group of faces.
         """
-        self.avg_pose.position.x = np.mean([face.pose.position.x for face in self.faces])
-        self.avg_pose.position.y = np.mean([face.pose.position.y for face in self.faces])
+        self.avg_pose.position.x = np.mean(
+            [face.pose.position.x for face in self.faces]
+        )
+        self.avg_pose.position.y = np.mean(
+            [face.pose.position.y for face in self.faces]
+        )
 
     def add_face(self, face: DetectedFace) -> None:
         """
@@ -135,14 +139,18 @@ class DetectedFacesTracker:
     def __init__(self):
         self.tracked_faces = []
         self.face_groups: List[FaceGroup] = []
-        self.group_distance_threshold: float = 0.5  # in meters
+        self.group_distance_threshold: float = 0.7  # in meters
         self.valid_detection_threshold: int = (
-            3  # number of detections to consider a face as a valid face
+            5  # number of detections to consider a face as a valid face
         )
-        self.history_limit: int = 50  # number of detections to keep in the history
-        self.face_max_distance: float = 3  # in meters max distance to a valid face
-        self.greeting_max_distance: float = 0.6  # in meters max distance to a valid face
+        self.history_limit: int = 100  # number of detections to keep in the history
+        self.face_max_distance: float = 1.5  # in meters max distance to a valid face
+        self.greeting_max_distance: float = (
+            0.8  # in meters max distance to a valid face
+        )
         self.map_manager: MapManager = MapManager()
+
+        print("Face tracker initialized")
 
     def print_face_groups(self):
         """
@@ -159,7 +167,20 @@ class DetectedFacesTracker:
 
         Args:
             face (DetectedFace): face to add
+
+
         """
+
+        # prin coords
+
+        # divife all these by 1000
+
+        print("Face detected at: ", face.pose.position.x, face.pose.position.y)
+        print("Robot at: ", face.robot_x, face.robot_y)
+
+        # prit distance
+        print("Distance: ", face.face_distance)
+
         if face.face_distance > self.face_max_distance:
             print(f"Face is too far away: {face.face_distance} not adding it")
             return
@@ -172,11 +193,15 @@ class DetectedFacesTracker:
                 face_group.avg_face_normal[1],
             )
             fg_normal1, fg_normal2 = face_group.get_face_normal(face)
-            same_side = self.same_side_normal(fg_normal1, fg_normal2, normal_1, normal_2)
+            same_side = self.same_side_normal(
+                fg_normal1, fg_normal2, normal_1, normal_2
+            )
 
             if self.is_close(avg_pose, face.pose) and same_side:
                 if face_group.detections >= self.history_limit:
-                    print("Face group has reached the history limit, not adding new faces")
+                    print(
+                        "Face group has reached the history limit, not adding new faces"
+                    )
                     return
 
                 face_group.add_face(face)
@@ -184,7 +209,9 @@ class DetectedFacesTracker:
                 self.print_face_groups()
                 return
 
-        print("New face detected, new facegroup created and added to list of unique groups!")
+        print(
+            "New face detected, new facegroup created and added to list of unique groups!"
+        )
         self.face_groups.append(FaceGroup(face, len(self.face_groups) + 1))
         self.print_face_groups()
 
@@ -234,7 +261,9 @@ class DetectedFacesTracker:
 
         # Iterate over valid face groups
         for group in (
-            g for g in self.face_groups if g.detections >= self.valid_detection_threshold
+            g
+            for g in self.face_groups
+            if g.detections >= self.valid_detection_threshold
         ):
             avg_pose = group.avg_pose
             total_weight = 0
@@ -256,11 +285,12 @@ class DetectedFacesTracker:
                 )
 
                 greet_to_face_distance = np.linalg.norm(
-                    np.array([xg, yg]) - np.array([robot_x, robot_y])
+                    np.array([xg, yg])
+                    - np.array([avg_pose.position.x, avg_pose.position.y])
                 )
 
                 # Weight the greet location based on the confidence and the inverse of the distance
-                weight = confidence / face_distance * greet_to_face_distance
+                weight = confidence / (face_distance * greet_to_face_distance * 100)
                 weighted_greet_locations += np.array([xg, yg]) * weight
                 total_weight += weight
 
@@ -275,6 +305,10 @@ class DetectedFacesTracker:
 
             if greet_to_face_distance <= self.greeting_max_distance:
                 greet_locations.append((avg_face_greet_location, group))
+            else:
+                print(
+                    f"Greet location too far away from face{avg_face_greet_location}: {greet_to_face_distance} not adding it"
+                )
 
         return greet_locations
 
@@ -301,7 +335,9 @@ class FaceLocalizer:
         self.detected_faces_publisher = rospy.Publisher(
             "detected_faces", DetectedFaces, queue_size=20
         )
-        self.bridge = CvBridge()  # Object for converting between ROS and OpenCV image formats
+        self.bridge = (
+            CvBridge()
+        )  # Object for converting between ROS and OpenCV image formats
         self.dims = (0, 0, 0)  # A help variable for holding the dimensions of the image
         self.marker_array = MarkerArray()  # Store markers for faces
         self.marker_num = 1
@@ -313,7 +349,9 @@ class FaceLocalizer:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
         self.image_lock = threading.Lock()
         self.rgb_image_sub = message_filters.Subscriber("/camera/rgb/image_raw", Image)
-        self.depth_image_sub = message_filters.Subscriber("/camera/depth/image_raw", Image)
+        self.depth_image_sub = message_filters.Subscriber(
+            "/camera/depth/image_raw", Image
+        )
         self.time_synchronizer = ApproximateTimeSynchronizer(
             [self.rgb_image_sub, self.depth_image_sub], queue_size=5, slop=0.5
         )
@@ -396,7 +434,7 @@ class FaceLocalizer:
         is_real_face = False
 
         with mp.solutions.face_detection.FaceDetection(
-            model_selection=detection_range, min_detection_confidence=0.7
+            model_selection=detection_range, min_detection_confidence=0.8
         ) as face_detection:
             rgb_converted_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
             rgb_converted_image.flags.writeable = False
@@ -407,7 +445,7 @@ class FaceLocalizer:
             if detection_results.detections:
                 for detection in detection_results.detections:
                     confidence_score = detection.score[0]
-                    if confidence_score > 0.75:
+                    if confidence_score > 0.85:
                         print("Face detected with high confidence: ", confidence_score)
 
                         bounding_box = detection.location_data.relative_bounding_box
@@ -422,6 +460,7 @@ class FaceLocalizer:
                         x1, y1, x2, y2 = x, y, x + w, y + h
                         face_region = rgb_image[y1:y2, x1:x2]
                         face_distance = float(np.nanmean(depth_image[y1:y2, x1:x2]))
+                        face_distance /= 1000.0
                         print("Distance to face", face_distance)
                         depth_timestamp = self.latest_depth_image_msg.header.stamp
 
@@ -432,16 +471,26 @@ class FaceLocalizer:
                             robot_x = base_position_transform.transform.translation.x
                             robot_y = base_position_transform.transform.translation.y
                             robot_z = base_position_transform.transform.translation.z
-                            robot_rotation_x = base_position_transform.transform.rotation.x
-                            robot_rotation_y = base_position_transform.transform.rotation.y
-                            robot_rotation_z = base_position_transform.transform.rotation.z
-                            robot_rotation_w = base_position_transform.transform.rotation.w
+                            robot_rotation_x = (
+                                base_position_transform.transform.rotation.x
+                            )
+                            robot_rotation_y = (
+                                base_position_transform.transform.rotation.y
+                            )
+                            robot_rotation_z = (
+                                base_position_transform.transform.rotation.z
+                            )
+                            robot_rotation_w = (
+                                base_position_transform.transform.rotation.w
+                            )
 
                         except TransformException as error:
                             rospy.logerr(f"Error in base coords lookup: {error}")
                             return
 
-                        face_pose = self.get_pose((x1, x2, y1, y2), face_distance, depth_timestamp)
+                        face_pose = self.get_pose(
+                            (x1, x2, y1, y2), face_distance, depth_timestamp
+                        )
                         if face_pose is not None:
                             face_distance_left = float(
                                 np.nanmean(depth_image[y1:y2, x1 : (x1 + 1)])
@@ -518,6 +567,13 @@ class FaceLocalizer:
         """
         with self.image_lock:
             if self.latest_rgb_image_msg is None or self.latest_depth_image_msg is None:
+                if self.latest_rgb_image_msg is None:
+                    print("No RGB image")
+
+                if self.latest_depth_image_msg is None:
+                    print("No depth image")
+
+                print("No images")
                 return
 
             print("I got a new image!")
@@ -528,7 +584,9 @@ class FaceLocalizer:
                 rospy.logerr(bridge_error)
 
             try:
-                depth_image = self.bridge.imgmsg_to_cv2(self.latest_depth_image_msg, "32FC1")
+                depth_image = self.bridge.imgmsg_to_cv2(
+                    self.latest_depth_image_msg, "32FC1"
+                )
             except CvBridgeError as bridge_error:
                 rospy.logerr(bridge_error)
 
@@ -646,6 +704,8 @@ class FaceLocalizer:
         Args:
             coords (List[Tuple[float, float]]): Coordinates to show markers for.
         """
+
+        # print("Showing markers for coords: %s" % str(coords))
         markers = MarkerArray()
         marker_num = 0
 

@@ -4,7 +4,7 @@
 Module representing brain of the turlte bot. Currently it moves the turtle bot 
 to all of the keypoints and do a 360 degree rotation at each of them.
 """
-
+import signal
 import math
 import sys
 import threading
@@ -17,6 +17,16 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Twist
 from tf.transformations import quaternion_from_euler
 from sound import SoundPlayer
+
+
+def signal_handler(signal, frame):
+    rospy.loginfo("Ctrl+C detected. Shutting down the node.")
+    rospy.signal_shutdown("KeyboardInterrupt")
+
+    sys.exit(0)
+
+
+signal.signal(signal.SIGINT, signal_handler)
 
 
 class Brain:
@@ -32,14 +42,18 @@ class Brain:
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
         rospy.loginfo("Map manager is ready")
-        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
+        self.move_base_client = actionlib.SimpleActionClient(
+            "move_base", MoveBaseAction
+        )
         rospy.loginfo("Waiting for move_base server.")
         self.move_base_client.wait_for_server()
         self.velocity_publisher = rospy.Publisher(
             "mobile_base/commands/velocity", Twist, queue_size=10
         )
         self.init_planner()
-        self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: brain.map_show_markers())
+        self.markers_timer = rospy.Timer(
+            rospy.Duration(1), lambda event: brain.map_show_markers()
+        )
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
@@ -59,12 +73,12 @@ class Brain:
         planner, which is a local motion planning algorithm used for the mobile robot's navigation.
         """
         rospy.set_param("/move_base/DWAPlannerROS/acc_lim_theta", 2)
-        rospy.set_param("/move_base/DWAPlannerROS/min_vel_x", 7)
-        rospy.set_param("/move_base/DWAPlannerROS/max_vel_x", 10)
+        rospy.set_param("/move_base/DWAPlannerROS/min_vel_x", 3)
+        rospy.set_param("/move_base/DWAPlannerROS/max_vel_x", 5)
         rospy.set_param("/move_base/DWAPlannerROS/acc_lim_x", 2)
-        rospy.set_param("/move_base/DWAPlannerROS/max_vel_theta", 10)
-        rospy.set_param("/move_base/DWAPlannerROS/min_vel_theta", 5)
-        rospy.set_param("/move_base/DWAPlannerROS/min_in_place_vel_theta", 5)
+        rospy.set_param("/move_base/DWAPlannerROS/max_vel_theta", 3)
+        rospy.set_param("/move_base/DWAPlannerROS/min_vel_theta", 1)
+        rospy.set_param("/move_base/DWAPlannerROS/min_in_place_vel_theta", 1)
         rospy.set_param("/move_base/DWAPlannerROS/escape_vel", -0.3)
         rospy.set_param("/move_base/DWAPlannerROS/xy_goal_tolerance", 0.15)
         rospy.set_param("/move_base/max_planning_retries", 3)
@@ -133,16 +147,24 @@ class Brain:
         goal.target_pose.pose.orientation.y = rr_y
         goal.target_pose.pose.orientation.z = rr_z
         goal.target_pose.pose.orientation.w = rr_w
-        self.move_base_client.send_goal(goal)
+        # self.move_base_client.send_goal(goal)
 
-        wait_result = self.move_base_client.wait_for_result()
+        # print(goal)
 
-        if not wait_result:
-            rospy.logerr("Not able to set goal.")
+        status = self.move_base_client.send_goal_and_wait(
+            goal, rospy.Duration(120), rospy.Duration(20)
+        )
+
+        # print("hahahahahahha")
+
+        if not status == 3:
+            rospy.logerr("Not able to achive goal.")
+            rospy.logerr(str(status))
+
             return -1
 
-        res = self.move_base_client.get_state()
-        return res
+        # res = self.move_base_client.get_state()
+        return status
 
     def degrees_to_rad(self, deg):
         """
@@ -156,7 +178,7 @@ class Brain:
         """
         return deg * math.pi / 180
 
-    def rotate(self, angle_deg, angular_speed=0.7):
+    def rotate(self, angle_deg, angular_speed=0.1):
         """
         Rotates the turtle bot by the specified angle at the given angular speed.
 
@@ -217,7 +239,8 @@ class Brain:
             if in_sight_vertices:
                 in_sight_vertices.sort(
                     key=lambda vertex: math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2
+                        + (current_vertex[1] - vertex[1]) ** 2
                     )
                 )
                 nearest_vertex = in_sight_vertices[0]
@@ -227,7 +250,8 @@ class Brain:
 
                 for vertex in unvisited_vertices:
                     distance = math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2
+                        + (current_vertex[1] - vertex[1]) ** 2
                     )
                     if distance < nearest_distance:
                         nearest_distance = distance
@@ -252,7 +276,9 @@ class Brain:
         Returns:
             Tuple[float, float, float, float]: quaternion representing the orientation
         """
-        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
+        angle = math.atan2(
+            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
+        )
         quaternion = quaternion_from_euler(0, 0, angle)
         return quaternion
 
@@ -265,7 +291,7 @@ class Brain:
         """
 
         detected_faces_count = 0
-        target_face_detections = 3
+        target_face_detections = 5
         detected_faces_group_ids = set()
 
         goals = self.map_manager.get_goals()
@@ -286,7 +312,10 @@ class Brain:
                     quaternion = self.orientation_between_points(goal, next_goal)
 
                 self.move_to_goal(goal[0], goal[1], *quaternion)
-                self.rotate(360, angular_speed=0.7)
+
+                for i in range(12):
+                    self.rotate(30, angular_speed=1.0)
+                    rospy.sleep(2.5)
 
                 with self.detected_faces_lock:
                     if len(self.detected_faces) > detected_faces_count:
@@ -294,16 +323,13 @@ class Brain:
                             f"I have detected {len(self.detected_faces) - detected_faces_count} new"
                             " faces during this iteration."
                         )
-                        
-                        
-                        #get new faces based on group id! 
+
+                        # get new faces based on group id!
                         new_faces = [
                             face
                             for face in self.detected_faces
                             if face.group_id not in detected_faces_group_ids
                         ]
-
-
 
                         for new_face in new_faces:
                             self.move_to_goal(
@@ -331,7 +357,9 @@ class Brain:
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo("No new goals found. Will stop i failed to find all faces")
+                    rospy.loginfo(
+                        "No new goals found. Will stop i failed to find all faces"
+                    )
                     break
                 else:
                     rospy.loginfo(
