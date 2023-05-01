@@ -181,7 +181,7 @@ class Brain:
         goal.target_pose.pose.orientation.w = rr_w
 
         # log
-        #rospy.loginfo("Sending goal to move_base: " + str(goal))
+        # rospy.loginfo("Sending goal to move_base: " + str(goal))
 
         marker = Marker()
         marker.header.frame_id = "map"
@@ -198,7 +198,7 @@ class Brain:
         marker.color.r = 0.0
         marker.color.g = 1.0
         marker.color.b = 0.0
-        #set the lifetime of the marker
+        # set the lifetime of the marker
         marker.lifetime = rospy.Duration(20)
 
         self.current_goal_pub.publish(marker)
@@ -608,7 +608,7 @@ class Brain:
                 # search for cylinders
                 self.visit_found_cylinders()
 
-            if len(self.cylinder_coords) < num_of_cylinders:
+            if not self.all_cylinders_found:
                 rospy.loginfo(
                     "Not all cylinders have been detected. Will start EXPLORING"
                 )

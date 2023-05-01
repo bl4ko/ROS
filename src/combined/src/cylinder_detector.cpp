@@ -312,6 +312,12 @@ void new_potential_object(geometry_msgs::Pose pose, double red, double green, do
             if ((object_position_votes[i] >= object_num_detections_threshold) && (objects_already_sent[i] == false)) {
                 //if ((object_position_votes[i] > object_num_detections_threshold)) {
 		std::string color = get_color(object_color_red[i], object_color_green[i], object_color_blue[i]);
+
+                if (color == "unknown"){
+                	std::cout << "Unknown color" << std::endl;
+                	continue;
+                }
+                
                 publish_new_confirmed_object(potential_object_positions[i], color);
                 objects_already_sent[i] = true;
 
