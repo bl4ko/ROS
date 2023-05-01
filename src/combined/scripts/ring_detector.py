@@ -596,7 +596,7 @@ def main(log_level=rospy.INFO) -> None:
 
 if __name__ == "__main__":
     LOG_LEVEL = rospy.INFO
-    if len(sys.argv) >= 1 and sys.argv[1] == "debug":
+    if len(sys.argv) > 1 and sys.argv[1] == "debug":
         print("Debug mode enabled!")
         LOG_LEVEL = rospy.DEBUG
     main(log_level=LOG_LEVEL)

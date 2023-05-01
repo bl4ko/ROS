@@ -66,7 +66,7 @@ class Brain:
         )
         self.init_planner()
         self.markers_timer = rospy.Timer(
-            rospy.Duration(1), lambda event: brain.map_show_markers()
+            rospy.Duration(1), lambda event: self.map_show_markers()
         )
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
