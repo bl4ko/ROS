@@ -15,7 +15,7 @@ import tf2_ros
 import message_filters
 from tf2_geometry_msgs import PointStamped
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import Vector3, Pose
+from geometry_msgs.msg import Vector3, Pose, Quaternion
 from cv_bridge import CvBridge, CvBridgeError
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
@@ -76,7 +76,7 @@ class RingGroup:
         avg_pose.position.x = 0
         avg_pose.position.y = 0
         avg_pose.position.z = 0
-        avg_pose.orientation = (0, 0, 0, 1)  # Just to quiet the rviz
+        avg_pose.orientation = Quaternion(0, 0, 0, 1)  # Just to quiet the rviz
 
         for ring in self.rings:
             avg_pose.position.x += ring.pose.position.x
@@ -93,9 +93,11 @@ class RingGroup:
         """
         Updates the average color of the group.
         """
-        color_counter = Counter([ring.color for ring in self.rings])
+        color_counter = Counter(
+            [(ring.color.r, ring.color.g, ring.color.b, ring.color.a) for ring in self.rings]
+        )
         most_common_color = color_counter.most_common(1)[0][0]
-        self.color = most_common_color
+        self.color = ColorRGBA(*most_common_color)
 
     def add_ring(self, ring: DetectedRing) -> None:
         """
@@ -133,14 +135,16 @@ class RingDetector:
         # Publiser for the visualization markers
         self.markers_pub = rospy.Publisher("ring_markers", MarkerArray, queue_size=1000)
 
-        self.min_num_of_detections = 3
-
         # Object we use for transforming between coordinate frames
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
 
         # Max distance for the ring to be considered part of the group
-        self.ring_max_distance: float = 0.3
+        self.group_max_distance: float = 0.3
+
+        # Max distance for the ring detection to be considered valid
+        self.max_distance: float = 5.0
+
         # Max depth difference for the ring to be considered valid
         self.depth_difference_threshold: float = 0.1
 
@@ -211,9 +215,12 @@ class RingDetector:
 
             rospy.loginfo(f"Found {len(candidates)} candidates for rings")
 
-            self.process_candidates_and_update_ring_groups(
-                candidates, rgb_img, depth_img, depth_img_time
-            )
+            if len(candidates) > 0:
+                self.process_candidates_and_update_ring_groups(
+                    candidates, rgb_img, depth_img, depth_img_time
+                )
+
+            self.publish_ring_groups()
 
     def process_candidates_and_update_ring_groups(
         self,
@@ -232,83 +239,101 @@ class RingDetector:
             depth_img_time (rospy.Time): Time stamp of the depth image.
         """
         # Iterate over the ellipse candidate pairs to find the rings
-        for candidate in candidates:
-            e_1, e_2 = candidate
-
-            # Calculcate the average size and center of the first ellipse (inner ellipse)
-            avg_size = (e_1[1][0] + e_1[1][1]) / 2
-            center = (e_1[0][1], e_1[0][0])
+        for inner_ellipse, outer_ellipse in candidates:
+            # Calculcate the average size and center of the inner ellipse
+            inner_avg_size = (inner_ellipse[1][0] + inner_ellipse[1][1]) / 2
+            inner_center = (inner_ellipse[0][1], inner_ellipse[0][0])
 
             # Calculate the minimum and maximum x-coordinates of the inner ellipse
-            x_min = max(0, int(center[0] - avg_size / 2))
-            x_max = min(rgb_img.shape[0], int(center[0] + avg_size / 2))
+            inner_x_min = max(0, int(inner_center[0] - inner_avg_size / 2))
+            inner_x_max = min(rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2))
 
             # Calculate the minimum and maximum y-coordinates of the inner ellipse
-            y_min = max(0, int(center[1] - avg_size / 2))
-            y_max = min(rgb_img.shape[1], int(center[1] + avg_size / 2))
+            inner_y_min = max(0, int(inner_center[1] - inner_avg_size / 2))
+            inner_y_max = min(rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2))
 
             # Calculate the average size and center of the second ellipse (outer ellipse)
-            avg_size_outer = (e_2[1][0] + e_2[1][1]) / 2
-            center_outer = (e_1[0][1], e_1[0][0])
+            outer_avg_size = (outer_ellipse[1][0] + outer_ellipse[1][1]) / 2
+            outer_center = (inner_ellipse[0][1], inner_ellipse[0][0])
 
             # Calculate the minium and maximum x-coordinates of the outer ellipse
-            x_min_outer = max(0, int(center_outer[0] - avg_size_outer / 2))
-            x_max_outer = min(rgb_img.shape[0], int(center_outer[0] + avg_size_outer / 2))
+            outer_x_min = max(0, int(outer_center[0] - outer_avg_size / 2))
+            outer_x_max = min(rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2))
 
             # Calculate the minimum and maximum y-coordinates of the outer ellipse
-            y_min_outer = max(0, int(center_outer[1] - avg_size_outer / 2))
-            y_max_outer = min(rgb_img.shape[1], int(center_outer[1] + avg_size_outer / 2))
+            outer_y_min = max(0, int(outer_center[1] - outer_avg_size / 2))
+            outer_y_max = min(rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2))
 
             # Calculate the center of the candidate ellipse pair
-            center_x = round((x_min + x_max) / 2)
-            center_y = round((y_min + y_max) / 2)
+            candidate_center_x = round((inner_x_min + inner_x_max) / 2)
+            candidate_center_y = round((inner_y_min + inner_y_max) / 2)
 
-            # Define a neighborhood size for the depth slice at the center
-            center_neigh = 2
-            center_image_depth_slice = depth_img[
-                (center_x - center_neigh) : (center_x + center_neigh),
-                (center_y - center_neigh) : (center_y + center_neigh),
+            # Create a squared slice of the center (size center_neigh x center_neigh)
+            center_neigh = 4
+            center_depth_slice = depth_img[
+                (candidate_center_x - center_neigh) : (candidate_center_x + center_neigh),
+                (candidate_center_y - center_neigh) : (candidate_center_y + center_neigh),
             ]
+            # self.debug_image_with_mouse(center_depth_slice)
+            # Convert nan to 0 in center_depth_slice
+            center_depth_slice = np.nan_to_num(center_depth_slice)
 
-            # Create a mask using both ellipses and calculate the
-            # median depth value of the ring-shaped area
-            ellipse_mask = self.ellipse2array(e_1, e_2, rgb_img.shape[0], rgb_img.shape[1])
-            depth_ring_content = float(np.nanmedian(depth_img[ellipse_mask == 255]))
-
-            # Print debugging information
-            rospy.logdebug(f"Depth ring content: {str(depth_ring_content)}")
-
-            # If there are no valid depth values in the center slice, skip to the next candidate
-            if len(center_image_depth_slice) <= 0:
+            if np.mean(center_depth_slice) > 0.1:
+                rospy.logdebug("Not a valid ring, because inside values are not far away.")
                 continue
 
-            # Calculate the mean depth value at the center of the candidate ellipse pair
-            depth_ring_center = (
-                np.NaN
-                if np.all(center_image_depth_slice != center_image_depth_slice)
-                else np.nanmean(center_image_depth_slice)
+            # Create a mask using both ellipses
+            ring_mask = self.ellipse2array(
+                inner_ellipse, outer_ellipse, rgb_img.shape[0], rgb_img.shape[1]
             )
 
-            # Print debugging information
-            rospy.logdebug(f"Depth ring center: {str(depth_ring_center)}")
-
-            # Set a depth difference threshold to consider an object as having a hole in the middle
-            depth_difference_threshold = 0.1
-            depth_difference = abs(depth_ring_content - depth_ring_center)
+            # Calculate median depth value of the ellipse, where ellipse is on the image
+            median_ring_depth = float(np.nanmedian(depth_img[ring_mask == 255]))
 
             # Print debugging information
-            rospy.logdebug(f"Depth difference: {str(depth_difference)}")
-
-            # if there is no hole in the middle -> candidate is not valid
-            if depth_difference < depth_difference_threshold:
-                continue
+            rospy.logdebug(f"Median ring depth: {str(median_ring_depth)}")
 
             # if object too far away -> do not consider detected (for better pose estimation)
-            if depth_ring_content > self.ring_max_distance or math.isnan(depth_ring_content):
+            if median_ring_depth > self.max_distance:
+                rospy.logdebug("Candidate not valid, because too far away")
                 continue
 
+            # If there are no valid depth values in the center slice, skip to the next candidate
+            # if len(center_depth_slice) <= 0:
+            #     rospy.logdebug("No valid depth values in center slice")
+            #     continue
+
+            # Calculate the mean depth value at the center of the candidate ellipse pair
+            # mean_center_depth = (
+            #     np.NaN
+            #     if np.all(center_depth_slice != center_depth_slice)
+            #     else np.nanmean(center_depth_slice)
+            # )
+
+            # Print debugging information
+            # rospy.logdebug(f"Mean center depth: {str(mean_center_depth)}")
+
+            # Set a depth difference threshold to consider an object as having a hole in the middle
+            # depth_difference_threshold = 0.1
+            # depth_difference = abs(median_ring_depth - mean_center_depth)
+
+            # Print debugging information
+            # rospy.logdebug(f"Depth difference: {str(depth_difference)}")
+
+            # Check if the depth difference is NaN
+            # if math.isnan(depth_difference):
+            #     rospy.logdebug("Candidate not valid, because depth difference is NaN")
+            #     continue
+
+            # if there is no hole in the middle -> candidate is not valid
+            # if depth_difference < depth_difference_threshold:
+            #     rospy.logdebug("Candidate not valid, because no hole in the middle")
+            #     continue
+
             # From here on we have a valid detection -> true ring
-            ring_pose = self.get_pose(ellipse=e_1, dist=depth_ring_content, stamp=depth_img_time)
+            ring_pose = self.get_pose(
+                ellipse=inner_ellipse, dist=median_ring_depth, stamp=depth_img_time
+            )
 
             if ring_pose is not None:
                 rospy.loginfo("Valid ring pose found!")
@@ -316,7 +341,7 @@ class RingDetector:
                     f"Pose: (x={ring_pose.position.x}, y={ring_pose.position.y},"
                     f" z={ring_pose.position.z})"
                 )
-                ring_img = rgb_img[x_min_outer:x_max_outer, y_min_outer:y_max_outer]
+                ring_img = rgb_img[outer_x_min:outer_x_max, outer_y_min:outer_y_max]
                 self.add_new_ring(ring_img=ring_img, ring_pose=ring_pose)
                 self.print_ring_groups()
 
@@ -337,7 +362,7 @@ class RingDetector:
             width (float): width of the image
 
         Returns:
-            np.array: array with ones where the ellipse is and zeros elsewhere, size of the image
+            np.array: Array with 255 where the ellipse is and 0 elsewhere.
         """
         cv_image = np.zeros((height, width, 3), np.uint8)
         cv2.ellipse(cv_image, ell_out, (255, 255, 255), -1)
@@ -425,30 +450,30 @@ class RingDetector:
         ring_color: ColorRGBA = self.get_ring_color(ring_img=ring_img)
         new_ring = DetectedRing(pose=ring_pose, color=ring_color)
 
-        # For each group compare if avg_group pose is smaller than 0.5m from the new ring
-        # In that case that means that the new ring is part of the group
+        # For each group compare if avg_group pose is smaller than self.group_max_dsitance
+        # from the new ring. In that case that means that the new ring is part of the group
         for i, ring_group in enumerate(self.ring_groups):
             if (
                 np.sqrt(
                     (ring_group.avg_pose.position.x - ring_pose.position.x) ** 2
                     + (ring_group.avg_pose.position.y - ring_pose.position.y) ** 2
                 )
-                < self.ring_max_distance
+                < self.group_max_distance
             ):
                 self.ring_groups[i].add_ring(new_ring)
                 rospy.loginfo(f"Ring added to group {str(ring_group.group_id)}")
-                if ring_group.detections > self.min_num_of_detections:
-                    self.publish_ring_group(ring_group)
-                    # TODO: self.publish_greet_instructions(ring_group)
+                # if ring_group.detections > self.min_num_of_detections:
+                #     # TODO: self.publish_greet_instructions(ring_group)
 
-                    if len(self.ring_groups) > self.num_of_all_rings:
-                        rospy.loginfo("All rings have been detected!")
-                        rospy.loginfo("Shutting down the ring detector...")
-                        sys.exit(0)
+                #     if len(self.ring_groups) > self.num_of_all_rings:
+                #         rospy.loginfo("All rings have been detected!")
+                #         rospy.loginfo("Shutting down the ring detector...")
+                #         sys.exit(0)
+                return
 
         # # If the ring is not part of any group, create a new group
         new_ring_group = RingGroup(new_ring, len(self.ring_groups))
-        rospy.loginfo(f"New ring group created: {str(new_ring_group.group_id)}")
+        rospy.loginfo(f"New ring group created: id={str(new_ring_group.group_id)}")
         self.ring_groups.append(new_ring_group)
 
     def get_ring_color(self, ring_img: np.array) -> ColorRGBA:
@@ -501,24 +526,29 @@ class RingDetector:
 
         return color_rgba_mapping[detected_color]
 
-    def publish_ring_group(self, ring_group: RingGroup) -> None:
+    def publish_ring_groups(self) -> None:
         """
-        Publishes a single ring group as a marker on the ring_markers topic.
-        Args:
-            ring_group (RingGroup): The ring group to be published.
+        Publishes ring groups as markers, so they can be visualized in rviz.
         """
-        marker = Marker()
-        marker.header.stamp = rospy.Time(0)
-        marker.header.frame_id = "map"
-        marker.type = Marker.SPHERE
-        marker.action = Marker.ADD
-        marker.pose = ring_group.avg_pose
-        marker.lifetime = rospy.Duration.from_sec(500)
-        marker.scale = Vector3(0.1, 0.1, 0.1)
-        marker.color = ring_group.color
-        marker.id = ring_group.group_id
+        rospy.logdebug("Publishing ring groups as markers...")
 
-        self.markers_pub.publish(marker)
+        markers = MarkerArray()
+
+        for ring_group in self.ring_groups:
+            if ring_group.detections > 3:
+                marker = Marker()
+                marker.header.stamp = rospy.Time(0)
+                marker.header.frame_id = "map"
+                marker.pose = ring_group.avg_pose
+                marker.type = Marker.CUBE
+                marker.action = Marker.ADD
+                marker.lifetime = rospy.Duration.from_sec(10)
+                marker.scale = Vector3(0.1, 0.1, 0.1)
+                marker.color = ring_group.color
+                marker.id = ring_group.group_id
+                markers.markers.append(marker)
+
+        self.markers_pub.publish(markers)
 
     def print_ring_groups(self) -> None:
         """
@@ -527,6 +557,26 @@ class RingDetector:
         print("Current ring groups:")
         for ring_group in self.ring_groups:
             print(f"   {ring_group}")
+
+    def debug_image_with_mouse(self, img: np.ndarray) -> None:
+        """
+        Helper function that displays an image and prints the pixel value at the mouse position.
+
+        Args:
+            img (np.ndarray): Image to be displayed.
+        """
+        cv2.namedWindow("img")
+
+        def mouse_event(event, x: float, y: float, flags, param):
+            if event == cv2.EVENT_MOUSEMOVE:
+                # print the pixel value at the x, y coordinate of the image
+                print(param[y, x])
+
+        # Set the mouse callback function to the window
+        cv2.setMouseCallback("img", mouse_event, param=img)
+        rospy.logdebug(f"Image: {str(img)}")
+        cv2.imshow("img", img)
+        cv2.waitKey(0)
 
 
 def main(log_level=rospy.INFO) -> None:
