@@ -19,6 +19,7 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Twist
 from tf.transformations import quaternion_from_euler
 from combined.msg import DetectedFaces
+from move_arm import Arm_Mover
 
 
 def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
@@ -36,6 +37,7 @@ def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
     rospy.signal_shutdown(f"{signal_name} received")
     sys.exit(0)
 
+
 signal.signal(signal.SIGINT, signal_handler)
 
 
@@ -52,14 +54,18 @@ class Brain:
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
         rospy.loginfo("Map manager is ready")
-        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
+        self.move_base_client = actionlib.SimpleActionClient(
+            "move_base", MoveBaseAction
+        )
         rospy.loginfo("Waiting for move_base server.")
         self.move_base_client.wait_for_server()
         self.velocity_publisher = rospy.Publisher(
             "mobile_base/commands/velocity", Twist, queue_size=10
         )
         self.init_planner()
-        self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: brain.map_show_markers())
+        self.markers_timer = rospy.Timer(
+            rospy.Duration(1), lambda event: brain.map_show_markers()
+        )
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
@@ -72,6 +78,11 @@ class Brain:
         self.detected_faces_lock = threading.Lock()
         self.sound_player = SoundPlayer()
         self.aditional_goals = []
+
+        # for moving arm
+        self.arm_mover = Arm_Mover()
+        rospy.sleep(1)
+        self.arm_mover.arm_movement_pub.publish(self.arm_mover.retract)
 
     def init_planner(self):
         """
@@ -237,7 +248,8 @@ class Brain:
             if in_sight_vertices:
                 in_sight_vertices.sort(
                     key=lambda vertex: math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2
+                        + (current_vertex[1] - vertex[1]) ** 2
                     )
                 )
                 nearest_vertex = in_sight_vertices[0]
@@ -247,7 +259,8 @@ class Brain:
 
                 for vertex in unvisited_vertices:
                     distance = math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2
+                        + (current_vertex[1] - vertex[1]) ** 2
                     )
                     if distance < nearest_distance:
                         nearest_distance = distance
@@ -272,7 +285,9 @@ class Brain:
         Returns:
             Tuple[float, float, float, float]: quaternion representing the orientation
         """
-        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
+        angle = math.atan2(
+            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
+        )
         quaternion = quaternion_from_euler(0, 0, angle)
         return quaternion
 
@@ -306,7 +321,9 @@ class Brain:
                     quaternion = self.orientation_between_points(goal, next_goal)
 
                 self.move_to_goal(goal[0], goal[1], *quaternion)
+
                 self.rotate(360, angular_speed=0.7)
+
 
                 with self.detected_faces_lock:
                     if len(self.detected_faces) > detected_faces_count:
@@ -348,7 +365,9 @@ class Brain:
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo("No new goals found. Will stop i failed to find all faces")
+                    rospy.loginfo(
+                        "No new goals found. Will stop i failed to find all faces"
+                    )
                     break
                 else:
                     rospy.loginfo(
