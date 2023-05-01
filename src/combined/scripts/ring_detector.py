@@ -25,7 +25,9 @@ from std_msgs.msg import ColorRGBA
 # Float the angle of rotation of the elipse
 Ellipse = Tuple[Tuple[float, float], Tuple[float, float], float]
 
-LAST_PROCESSED_IMAGE_TIME = 0  # Variable for storing the time of the last processed image
+LAST_PROCESSED_IMAGE_TIME = (
+    0  # Variable for storing the time of the last processed image
+)
 
 
 class DetectedRing:
@@ -94,7 +96,10 @@ class RingGroup:
         Updates the average color of the group.
         """
         color_counter = Counter(
-            [(ring.color.r, ring.color.g, ring.color.b, ring.color.a) for ring in self.rings]
+            [
+                (ring.color.r, ring.color.g, ring.color.b, ring.color.a)
+                for ring in self.rings
+            ]
         )
         most_common_color = color_counter.most_common(1)[0][0]
         self.color = ColorRGBA(*most_common_color)
@@ -129,7 +134,9 @@ class RingDetector:
         # Subscribe to rgb/depth image, and also synchronize the topics
         image_sub = message_filters.Subscriber("/camera/rgb/image_raw", Image)
         depth_sub = message_filters.Subscriber("/camera/depth/image_raw", Image)
-        time_synchronizer = message_filters.TimeSynchronizer([image_sub, depth_sub], 100)
+        time_synchronizer = message_filters.TimeSynchronizer(
+            [image_sub, depth_sub], 100
+        )
         time_synchronizer.registerCallback(self.image_callback)
 
         # Publiser for the visualization markers
@@ -154,7 +161,9 @@ class RingDetector:
         # After this number is achieved this node exits
         self.num_of_all_rings: int = 10
 
-    def image_callback(self, rgb_image_message: Image, depth_image_message: Image) -> None:
+    def image_callback(
+        self, rgb_image_message: Image, depth_image_message: Image
+    ) -> None:
         """
         Callback function for processing received image data.
 
@@ -200,7 +209,9 @@ class RingDetector:
             )
 
             # Extract contours from the binary image
-            contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(
+                thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
+            )
 
             # Fit elipses to all extracted contours with enough points
             ellipses = [cv2.fitEllipse(cnt) for cnt in contours if cnt.shape[0] >= 20]
@@ -246,11 +257,15 @@ class RingDetector:
 
             # Calculate the minimum and maximum x-coordinates of the inner ellipse
             inner_x_min = max(0, int(inner_center[0] - inner_avg_size / 2))
-            inner_x_max = min(rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2))
+            inner_x_max = min(
+                rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2)
+            )
 
             # Calculate the minimum and maximum y-coordinates of the inner ellipse
             inner_y_min = max(0, int(inner_center[1] - inner_avg_size / 2))
-            inner_y_max = min(rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2))
+            inner_y_max = min(
+                rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2)
+            )
 
             # Calculate the average size and center of the second ellipse (outer ellipse)
             outer_avg_size = (outer_ellipse[1][0] + outer_ellipse[1][1]) / 2
@@ -258,11 +273,15 @@ class RingDetector:
 
             # Calculate the minium and maximum x-coordinates of the outer ellipse
             outer_x_min = max(0, int(outer_center[0] - outer_avg_size / 2))
-            outer_x_max = min(rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2))
+            outer_x_max = min(
+                rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2)
+            )
 
             # Calculate the minimum and maximum y-coordinates of the outer ellipse
             outer_y_min = max(0, int(outer_center[1] - outer_avg_size / 2))
-            outer_y_max = min(rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2))
+            outer_y_max = min(
+                rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2)
+            )
 
             # Calculate the center of the candidate ellipse pair
             candidate_center_x = round((inner_x_min + inner_x_max) / 2)
@@ -271,15 +290,21 @@ class RingDetector:
             # Create a squared slice of the center (size center_neigh x center_neigh)
             center_neigh = 4
             center_depth_slice = depth_img[
-                (candidate_center_x - center_neigh) : (candidate_center_x + center_neigh),
-                (candidate_center_y - center_neigh) : (candidate_center_y + center_neigh),
+                (candidate_center_x - center_neigh) : (
+                    candidate_center_x + center_neigh
+                ),
+                (candidate_center_y - center_neigh) : (
+                    candidate_center_y + center_neigh
+                ),
             ]
             # self.debug_image_with_mouse(center_depth_slice)
             # Convert nan to 0 in center_depth_slice
             center_depth_slice = np.nan_to_num(center_depth_slice)
 
             if np.mean(center_depth_slice) > 0.1:
-                rospy.logdebug("Not a valid ring, because inside values are not far away.")
+                rospy.logdebug(
+                    "Not a valid ring, because inside values are not far away."
+                )
                 continue
 
             # Create a mask using both ellipses
@@ -540,10 +565,10 @@ class RingDetector:
                 marker.header.stamp = rospy.Time(0)
                 marker.header.frame_id = "map"
                 marker.pose = ring_group.avg_pose
-                marker.type = Marker.CUBE
+                marker.type = Marker.SPHERE
                 marker.action = Marker.ADD
                 marker.lifetime = rospy.Duration.from_sec(10)
-                marker.scale = Vector3(0.1, 0.1, 0.1)
+                marker.scale = Vector3(0.2, 0.2, 0.2)
                 marker.color = ring_group.color
                 marker.id = ring_group.group_id
                 markers.markers.append(marker)

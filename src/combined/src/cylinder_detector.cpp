@@ -207,9 +207,9 @@ void publish_new_confirmed_object(geometry_msgs::Pose pose, std::string color_st
 
     marker.pose = pose;
 
-    marker.scale.x = 0.1;
-    marker.scale.y = 0.1;
-    marker.scale.z = 0.1;
+    marker.scale.x = 0.2;
+    marker.scale.y = 0.2;
+    marker.scale.z = 0.2;
 
     /*
     marker.color.r = 0.0f;
@@ -717,6 +717,8 @@ cloud_cb_basic_depth (const pcl::PCLPointCloud2ConstPtr& cloud_blob)
   
 }
 
+
+
 int
 main(int argc, char ** argv) {
 
@@ -743,6 +745,13 @@ main(int argc, char ** argv) {
     pubm = nh.advertise < visualization_msgs::Marker > ("detected_cylinder", 1);
 
     cilinder_arr_pub = nh.advertise < visualization_msgs::MarkerArray > ("detected_cylinders", 0);
+
+
+    
+
+    
+
+
 
     // TODO: add custom message for informing
     brain_publisher = nh.advertise < geometry_msgs::Pose > ("cylinder_greet_instructions", 1);

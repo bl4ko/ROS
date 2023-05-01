@@ -103,7 +103,7 @@ class Brain:
         # for moving arm
         self.arm_mover = Arm_Mover()
         rospy.sleep(1)
-        self.arm_mover.arm_movement_pub.publish(self.arm_mover.retract)
+        self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
 
     def init_planner(self):
         """
@@ -430,7 +430,10 @@ class Brain:
 
                 self.move_to_goal(goal[0], goal[1], *quaternion)
 
+
+
                 self.rotate(360, angular_speed=0.7)
+
 
 
                 with self.detected_faces_lock:
