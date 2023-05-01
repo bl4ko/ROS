@@ -18,3 +18,9 @@ class SoundPlayer:
         Plays a greeting sound.
         """
         self.sound_client.say("Hello, nice to meet you!")
+
+    def say(self, text):
+        """
+        Says the given text.
+        """
+        self.sound_client.say(text)
