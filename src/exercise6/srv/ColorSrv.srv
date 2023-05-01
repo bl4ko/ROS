@@ -1,0 +1,6 @@
+#request constants
+#string content
+sensor_msgs/Image img
+---
+#response constants
+string color

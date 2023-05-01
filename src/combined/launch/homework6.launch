@@ -1,0 +1,5 @@
+<launch>
+    <arg name="node_start_delay" default="2.0" />
+    <node pkg="combined" type="detect_rings.py" name="detect_rings" output="screen"/>
+    <!-- <node pkg="combined" type="cylinder_detector" name="cylinder_detector"/> -->
+</launch>
