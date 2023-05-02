@@ -114,6 +114,16 @@ class Brain:
         rospy.sleep(1)
         self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
 
+        # /green_ring_coords
+        self.green_ring_coords_pub = rospy.Publisher(
+            "green_ring_coords", UniqueRingCoords, queue_size=10
+        )
+
+        # /parking subscribe
+        rospy.Subscriber("parking_spot", Pose, self.parking_callback)
+        self.parking_lock = threading.Lock()
+        self.parking_spot = None
+
     def init_planner(self):
         """
         Initializes and configure the parameters for the DWA (Dynamic Window Approach)
@@ -162,6 +172,10 @@ class Brain:
         """
         with self.detected_rings_lock:
             self.detected_rings = msg.array
+
+    def parking_callback(self, msg: Pose):
+        with self.parking_lock:
+            self.parking_spot = msg
 
     def move_to_goal(
         self,
@@ -241,14 +255,14 @@ class Brain:
         res = self.move_base_client.get_state()
         return res
 
-    def get_object_greet_pose(self, x_obj, y_obj):
+    def get_object_greet_pose(self, x_obj, y_obj, erosion: int = 0) -> Pose:
         """
         Returns Pose with proper greet location and orientation
         for ring / cylinder at x_obj, y_obj.
         """
         # compute position
         x_greet, y_greet = self.map_manager.get_nearest_accessible_point_with_erosion(
-            x_obj, y_obj, 5
+            x_obj, y_obj, erosion
         )
 
         # compute orientation from greet point to object point
@@ -668,7 +682,7 @@ class Brain:
         """
 
         detected_rings_count = 0
-        target_ring_detections = 4
+        target_ring_detections = 5
         detected_rings_group_ids = set()
 
         goals = self.map_manager.get_goals()
@@ -738,10 +752,153 @@ class Brain:
 
         rospy.loginfo("I have finished my task")
 
+    def think_rings_cylinders(self):
+        """
+        search and greet cylinders and search rings
+        """
+
+        detected_rings_count = 0
+        target_ring_detections = 1
+        detected_rings_group_ids = set()
+
+        goals = self.map_manager.get_goals()
+
+        while not rospy.is_shutdown():
+            optimized_path = self.nearest_neighbor_path(goals, goals[0])
+
+            for i, goal in enumerate(optimized_path):
+                rospy.loginfo(
+                    f"Moving to goal {i + 1}/{len(optimized_path)}. rings detected:"
+                    f" {len(self.detected_rings)}"
+                )
+
+                # At each goal adjust orientation to the next goal
+                quaternion = (0, 0, 0, 1)
+                if i < len(optimized_path) - 1:
+                    next_goal = optimized_path[i + 1]
+                    quaternion = self.orientation_between_points(goal, next_goal)
+
+                self.move_to_goal(goal[0], goal[1], *quaternion)
+
+                self.rotate(360, angular_speed=0.7)
+
+                self.visit_found_cylinders()
+
+                with self.detected_rings_lock:
+                    if len(self.detected_rings) > detected_rings_count:
+                        rospy.loginfo(
+                            f"I have detected {len(self.detected_rings) - detected_rings_count} new"
+                            " rings during this iteration."
+                        )
+
+                        # get new rings based on group id!
+                        new_rings: List[UniqueRingCoords] = [
+                            ring
+                            for ring in self.detected_rings
+                            if ring.group_id not in detected_rings_group_ids
+                        ]
+
+                        for new_ring in new_rings:
+                            rospy.loginfo(
+                                f"Saving ring with id: {new_ring.group_id}, color: {new_ring.color}"
+                            )
+                            detected_rings_group_ids.add(new_ring.group_id)
+
+                        detected_rings_count = len(self.detected_rings)
+
+                if detected_rings_count >= target_ring_detections:
+                    break
+
+            if detected_rings_count < target_ring_detections:
+                rospy.loginfo(
+                    "Not all rings or cylinders have been detected. Will start EXPLORING"
+                )
+                # get new goals now that we have explored the map
+                self.aditional_goals = self.map_manager.get_get_aditional_goals()
+                if len(self.aditional_goals) < 1:
+                    rospy.loginfo(
+                        "No new goals found. Will stop i FAILED to find all rings or cylinders"
+                    )
+                    break
+                else:
+                    rospy.loginfo(
+                        f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
+                    )
+                    goals = self.aditional_goals
+
+            else:
+                rospy.loginfo("ALL RINGS AND CYLINDERS have been detected. Will stop")
+
+                # print the rings
+                with self.detected_rings_lock:
+                    for ring in self.detected_rings:
+                        rospy.loginfo(f"Ring: {ring.group_id}, {ring.color}")
+
+                #
+
+                break
+
+        # perform parking
+        # find green ring
+        green_ring: UniqueRingCoords = None
+        with self.detected_rings_lock:
+            for ring in self.detected_rings:
+                if ring.color == "green":
+                    green_ring = ring
+                    break
+
+        if green_ring is None:
+            rospy.loginfo("No green ring found. ERROR")
+            return
+
+        # start searching for ground rings
+        self.green_ring_coords_pub.publish(green_ring)
+
+        # wait for message
+
+        # compute approximate location to park
+        aproxx_park_location = self.get_object_greet_pose(
+            green_ring.ring_pose.position.x, green_ring.ring_pose.position.y, erosion=5
+        )
+        self.move_to_goal(
+            aproxx_park_location.position.x,
+            aproxx_park_location.position.y,
+            aproxx_park_location.orientation.x,
+            aproxx_park_location.orientation.y,
+            aproxx_park_location.orientation.z,
+            aproxx_park_location.orientation.w,
+        )
+
+        # rotate to find the green ring
+        self.rotate(360, angular_speed=0.2)
+
+        rospy.loginfo("waiting for parking spot message")
+
+        # wait for message from parking subscriber in while loop
+        while not rospy.is_shutdown():
+            rospy.sleep(0.1)
+            with self.parking_lock:
+                if self.parking_spot is not None:
+                    rospy.loginfo("I have found a parking spot")
+
+                    # move to parking spot
+                    self.move_to_goal(
+                        self.parking_spot.position.x,
+                        self.parking_spot.position.y,
+                        self.parking_spot.orientation.x,
+                        self.parking_spot.orientation.y,
+                        self.parking_spot.orientation.z,
+                        self.parking_spot.orientation.w,
+                    )
+                    rospy.loginfo("I have parked")
+                    break
+
+        rospy.loginfo("I have finished my task")
+
 
 if __name__ == "__main__":
     rospy.init_node("brain")
     brain = Brain()
     brain.is_ready = True
-    brain.think_rings()
+    brain.think_rings_cylinders()
     rospy.spin()
