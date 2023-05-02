@@ -64,8 +64,8 @@ class ParkingDetector:
         self.parking_pose = data.ring_pose
         # Max distance between parking pose and found parking spot
         self.max_distance = 0.3
-        arm_image_sub = rospy.Subscriber("/arm_camera/rgb/image_raw", Image)
-        arm_depth_sub = rospy.Subscriber("/arm_camera/depth/image_raw", Image)
+        arm_image_sub = message_filters.Subscriber("/arm_camera/rgb/image_raw", Image)
+        arm_depth_sub = message_filters.Subscriber("/arm_camera/depth/image_raw", Image)
         time_synchronizer = message_filters.TimeSynchronizer(
             [arm_image_sub, arm_depth_sub], 100
         )
