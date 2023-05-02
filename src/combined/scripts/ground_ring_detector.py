@@ -4,7 +4,6 @@ Module for finding center of the parking spot under the pose of the green ring.
 """
 
 import sys
-from collections import Counter
 from typing import Tuple, List
 import time
 import rospy
@@ -12,14 +11,11 @@ import cv2
 import numpy as np
 import tf2_ros
 import message_filters
+from cv_bridge import CvBridge, CvBridgeError
 from tf2_geometry_msgs import PointStamped
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import Vector3, Pose, Quaternion
-from cv_bridge import CvBridge, CvBridgeError
-from visualization_msgs.msg import Marker, MarkerArray
-from std_msgs.msg import ColorRGBA
-from combined.msg import UniqueRingCoords, DetectedRings
-from sensor_msgs import Image
+from geometry_msgs.msg import Pose
+from combined.msg import UniqueRingCoords
 
 LAST_PROCESSED_IMAGE_TIME = 0  # Variable for storing the time of the last processed image
 Ellipse = Tuple[Tuple[float, float], Tuple[float, float], float]
@@ -42,11 +38,16 @@ class ParkingDetector:
         # A help variable for holding the dimensions of the image
         self.dims = (0, 0, 0)
 
+        # Object we use for transforming between coordinate frames
+        self.tf_buf = tf2_ros.Buffer()
+
         rospy.loginfo("Waiting for message from brain to start parking...")
-        data = rospy.wait_for_message("brain_coords", UniqueRingCoords)
+        data = rospy.wait_for_message("green_ring_coords", UniqueRingCoords)
         rospy.loginfo("Received message from brain. Starting to search for parking spot...")
 
         self.parking_pose = data.pose
+        # Max distance between parking pose and found parking spot
+        self.max_distance = 0.3
         self.arm_image_sub = rospy.Subscriber("arm_camera/rgb/image_raw", Image)
         self.arm_depth_sub = rospy.Subscriber("arm_camera/depth/image_raw", Image)
         time_synchronizer = message_filters.TimeSynchronizer(
@@ -150,18 +151,6 @@ class ParkingDetector:
             inner_y_min = max(0, int(inner_center[1] - inner_avg_size / 2))
             inner_y_max = min(rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2))
 
-            # Calculate the average size and center of the second ellipse (outer ellipse)
-            outer_avg_size = (outer_ellipse[1][0] + outer_ellipse[1][1]) / 2
-            outer_center = (inner_ellipse[0][1], inner_ellipse[0][0])
-
-            # Calculate the minium and maximum x-coordinates of the outer ellipse
-            outer_x_min = max(0, int(outer_center[0] - outer_avg_size / 2))
-            outer_x_max = min(rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2))
-
-            # Calculate the minimum and maximum y-coordinates of the outer ellipse
-            outer_y_min = max(0, int(outer_center[1] - outer_avg_size / 2))
-            outer_y_max = min(rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2))
-
             # Calculate the center of the candidate ellipse pair
             candidate_center_x = round((inner_x_min + inner_x_max) / 2)
             candidate_center_y = round((inner_y_min + inner_y_max) / 2)
@@ -191,43 +180,6 @@ class ParkingDetector:
             # Print debugging information
             rospy.logdebug(f"Median ring depth: {str(median_ring_depth)}")
 
-            # if object too far away -> do not consider detected (for better pose estimation)
-            # if median_ring_depth > self.max_distance:
-            #     rospy.logdebug("Candidate not valid, because too far away")
-            #     continue
-
-            # If there are no valid depth values in the center slice, skip to the next candidate
-            # if len(center_depth_slice) <= 0:
-            #     rospy.logdebug("No valid depth values in center slice")
-            #     continue
-
-            # Calculate the mean depth value at the center of the candidate ellipse pair
-            # mean_center_depth = (
-            #     np.NaN
-            #     if np.all(center_depth_slice != center_depth_slice)
-            #     else np.nanmean(center_depth_slice)
-            # )
-
-            # Print debugging information
-            # rospy.logdebug(f"Mean center depth: {str(mean_center_depth)}")
-
-            # Set a depth difference threshold to consider an object as having a hole in the middle
-            # depth_difference_threshold = 0.1
-            # depth_difference = abs(median_ring_depth - mean_center_depth)
-
-            # Print debugging information
-            # rospy.logdebug(f"Depth difference: {str(depth_difference)}")
-
-            # Check if the depth difference is NaN
-            # if math.isnan(depth_difference):
-            #     rospy.logdebug("Candidate not valid, because depth difference is NaN")
-            #     continue
-
-            # if there is no hole in the middle -> candidate is not valid
-            # if depth_difference < depth_difference_threshold:
-            #     rospy.logdebug("Candidate not valid, because no hole in the middle")
-            #     continue
-
             # From here on we have a valid detection -> true ring
             ring_pose = self.get_pose(
                 ellipse=inner_ellipse, dist=median_ring_depth, stamp=depth_img_time
@@ -239,9 +191,15 @@ class ParkingDetector:
                     f"Pose: (x={ring_pose.position.x}, y={ring_pose.position.y},"
                     f" z={ring_pose.position.z})"
                 )
-                ring_img = rgb_img[outer_x_min:outer_x_max, outer_y_min:outer_y_max]
-                self.add_new_ring(ring_img=ring_img, ring_pose=ring_pose)
-                self.print_ring_groups()
+                if (
+                    np.sqrt(ring_pose.position.x - self.parking_pose.position.x) ** 2
+                    + (ring_pose.position.y - self.parking_pose.position.y) ** 2
+                    < self.max_distance
+                ):
+                    rospy.loginfo("Ring is close to parking pose!")
+                    self.parking_spot_publisher.publish(ring_pose)
+                    rospy.loginfo("Ring pose published. My job is done. Bye!")
+                    sys.exit(0)
 
     def ellipse2array(
         self,
@@ -267,6 +225,75 @@ class ParkingDetector:
         cv2.ellipse(cv_image, ell_in, (0, 0, 0), -1)
 
         return cv_image[:, :, 1]
+
+    def get_pose(
+        self,
+        ellipse: Ellipse,
+        dist: float,
+        stamp: rospy.Time,
+    ) -> Pose:
+        """
+        Calculate the pose of the detected ring.
+
+        Args:
+            elipse (Tuple[float, float]): Ellipse object
+            dist (float): Distance to the ring
+
+        Returns:
+            Pose: Pose of the ring
+        """
+
+        k_f = 525  # kinect focal length in pixels
+
+        ellipse_x = self.dims[1] / 2 - ellipse[0][0]
+        # elipse_y = self.dims[0] / 2 - elipse[0][1]
+
+        angle_to_target = np.arctan2(ellipse_x, k_f)
+
+        # Debugging print statements
+        print("dist: ", dist)
+        print("ellipse_x: ", ellipse_x)
+        print("angle_to_target: ", angle_to_target)
+
+        # Get the angles in the base_link relative coordinate system
+        x, y = dist * np.cos(angle_to_target), dist * np.sin(angle_to_target)
+        print("x, y: ", x, y)
+
+        # Define a stamped message for transformation - in the "camera rgb frame"
+        point_s = PointStamped()
+        point_s.point.x = -y
+        point_s.point.y = 0
+        point_s.point.z = x
+        point_s.header.frame_id = "camera_rgb_optical_frame"
+        point_s.header.stamp = stamp
+        # print("point_s: ", point_s)
+
+        try:
+            # Get the point in the "map" coordinate system
+            point_world = self.tf_buf.transform(point_s, "map")
+            # print("point_world: ", point_world)
+
+            # Create a Pose object with the same position
+            pose = Pose()
+            pose.position.x = point_world.point.x
+            pose.position.y = point_world.point.y
+            pose.position.z = point_world.point.z
+
+            # Dummy orientation to make rviz happy
+            pose.orientation.x = 0
+            pose.orientation.y = 0
+            pose.orientation.z = 0
+            pose.orientation.w = 1
+
+        except Exception as err:  # pylint: disable=broad-except
+            rospy.logwarn(
+                "Transformation into real world coordinates not available, will try again later:"
+                f" {err}"
+            )
+            pose = None
+            return
+
+        return pose
 
 
 def main(log_level=rospy.INFO) -> None:
