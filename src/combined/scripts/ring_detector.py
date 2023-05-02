@@ -555,11 +555,12 @@ class RingDetector:
 
         detected_rings_msg = DetectedRings()
         for ring_group in self.ring_groups:
-            ring_group_coords = UniqueRingCoords()
-            ring_group_coords.group_id = ring_group.group_id
-            ring_group_coords.ring_pose = ring_group.avg_pose
-            ring_group_coords.color = ring_group.convert_rgba_to_string()
-            detected_rings_msg.array.append(ring_group_coords)
+            if ring_group.detections >= self.min_num_of_detections:
+                ring_group_coords = UniqueRingCoords()
+                ring_group_coords.group_id = ring_group.group_id
+                ring_group_coords.ring_pose = ring_group.avg_pose
+                ring_group_coords.color = ring_group.convert_rgba_to_string()
+                detected_rings_msg.array.append(ring_group_coords)
 
         self.ring_group_publisher.publish(detected_rings_msg)
 
@@ -572,7 +573,7 @@ class RingDetector:
         markers = MarkerArray()
 
         for ring_group in self.ring_groups:
-            if ring_group.detections > 3:
+            if ring_group.detections >= self.min_num_of_detections:
                 marker = Marker()
                 marker.header.stamp = rospy.Time(0)
                 marker.header.frame_id = "map"

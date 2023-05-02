@@ -20,8 +20,11 @@ from geometry_msgs.msg import Twist, Pose
 from tf.transformations import quaternion_from_euler
 from visualization_msgs.msg import Marker
 from combined.msg import DetectedFaces
+from combined.msg import DetectedRings
 from combined.msg import CylinderGreetInstructions
+from combined.msg import UniqueRingCoords
 from move_arm import Arm_Mover
+from typing import List
 
 
 def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
@@ -33,9 +36,7 @@ def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
         frame (FrameType): The current stack frame.
     """
     signal_name = signal.Signals(sig).name
-    frame_info = (
-        f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
-    )
+    frame_info = f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
     rospy.loginfo(f"Program interrupted by {signal_name} signal, shutting down.")
     rospy.loginfo(f"Signal received at: {frame_info}")
     rospy.signal_shutdown(f"{signal_name} received")
@@ -58,19 +59,27 @@ class Brain:
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
         rospy.loginfo("Map manager is ready")
-        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
+        self.move_base_client = actionlib.SimpleActionClient(
+            "move_base", MoveBaseAction
+        )
         rospy.loginfo("Waiting for move_base server.")
         self.move_base_client.wait_for_server()
         self.velocity_publisher = rospy.Publisher(
             "mobile_base/commands/velocity", Twist, queue_size=10
         )
         self.init_planner()
-        self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: self.map_show_markers())
+        self.markers_timer = rospy.Timer(
+            rospy.Duration(1), lambda event: self.map_show_markers()
+        )
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
         self.searched_space_timer = rospy.Timer(
             rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
+        )
+
+        self.detected_rings_subscriber = rospy.Subscriber(
+            "/detected_ring_coords", DetectedRings, self.ring_callback
         )
 
         # for cylinder handling
@@ -90,10 +99,14 @@ class Brain:
         self.is_ready = False
         self.detected_faces = []
         self.detected_faces_lock = threading.Lock()
+        self.detected_rings: List[UniqueRingCoords] = []
+        self.detected_rings_lock = threading.Lock()
         self.sound_player = SoundPlayer()
         self.aditional_goals = []
 
-        self.current_goal_pub = rospy.Publisher("brain_current_goal", Marker, queue_size=10)
+        self.current_goal_pub = rospy.Publisher(
+            "brain_current_goal", Marker, queue_size=10
+        )
         self.current_goal_marker_id = 0
 
         # for moving arm
@@ -138,6 +151,17 @@ class Brain:
         """
         with self.detected_faces_lock:
             self.detected_faces = msg.array
+
+    def ring_callback(self, msg: DetectedRings):
+        """
+        Callback function for the ring subscriber. Stores
+        detected rings in a thread-safe manner.
+
+        Args:
+            msg (DetectedRings): The message containing the detected rings.
+        """
+        with self.detected_rings_lock:
+            self.detected_rings = msg.array
 
     def move_to_goal(
         self,
@@ -348,7 +372,8 @@ class Brain:
             if in_sight_vertices:
                 in_sight_vertices.sort(
                     key=lambda vertex: math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2
+                        + (current_vertex[1] - vertex[1]) ** 2
                     )
                 )
                 nearest_vertex = in_sight_vertices[0]
@@ -358,7 +383,8 @@ class Brain:
 
                 for vertex in unvisited_vertices:
                     distance = math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2
+                        + (current_vertex[1] - vertex[1]) ** 2
                     )
                     if distance < nearest_distance:
                         nearest_distance = distance
@@ -383,8 +409,12 @@ class Brain:
         Returns:
             Tuple[float, float, float, float]: quaternion representing the orientation
         """
-        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
-        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
+        angle = math.atan2(
+            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
+        )
+        angle = math.atan2(
+            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
+        )
         quaternion = quaternion_from_euler(0, 0, angle)
         return quaternion
 
@@ -461,7 +491,9 @@ class Brain:
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo("No new goals found. Will stop i failed to find all faces")
+                    rospy.loginfo(
+                        "No new goals found. Will stop i failed to find all faces"
+                    )
                     break
                 else:
                     rospy.loginfo(
@@ -487,7 +519,9 @@ class Brain:
             current_cylinder_pose = self.cylinder_coords.pop(0)
             current_cylinder_color = self.cylinder_colors.pop(0)
             current_greet_pose = self.cylinder_greet_poses.pop(0)
-            self.greet_cylinder(current_cylinder_pose, current_cylinder_color, current_greet_pose)
+            self.greet_cylinder(
+                current_cylinder_pose, current_cylinder_color, current_greet_pose
+            )
 
     # def move_as_close_to_as_possible(self, x_coordinate, y_coordinate, speed=0.3):
     #     """
@@ -606,11 +640,15 @@ class Brain:
                 self.visit_found_cylinders()
 
             if not self.all_cylinders_found:
-                rospy.loginfo("Not all cylinders have been detected. Will start EXPLORING")
+                rospy.loginfo(
+                    "Not all cylinders have been detected. Will start EXPLORING"
+                )
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo("No new goals found. Will stop i failed to find all cylinders")
+                    rospy.loginfo(
+                        "No new goals found. Will stop i failed to find all cylinders"
+                    )
                     break
                 else:
                     rospy.loginfo(
@@ -624,10 +662,86 @@ class Brain:
 
         rospy.loginfo("I have finished my task")
 
+    def think_rings(self):
+        """
+        search and greet rings
+        """
+
+        detected_rings_count = 0
+        target_ring_detections = 4
+        detected_rings_group_ids = set()
+
+        goals = self.map_manager.get_goals()
+
+        while not rospy.is_shutdown():
+            optimized_path = self.nearest_neighbor_path(goals, goals[0])
+
+            for i, goal in enumerate(optimized_path):
+                rospy.loginfo(
+                    f"Moving to goal {i + 1}/{len(optimized_path)}. rings detected:"
+                    f" {len(self.detected_rings)}"
+                )
+
+                # At each goal adjust orientation to the next goal
+                quaternion = (0, 0, 0, 1)
+                if i < len(optimized_path) - 1:
+                    next_goal = optimized_path[i + 1]
+                    quaternion = self.orientation_between_points(goal, next_goal)
+
+                self.move_to_goal(goal[0], goal[1], *quaternion)
+
+                self.rotate(360, angular_speed=0.7)
+
+                with self.detected_rings_lock:
+                    if len(self.detected_rings) > detected_rings_count:
+                        rospy.loginfo(
+                            f"I have detected {len(self.detected_rings) - detected_rings_count} new"
+                            " rings during this iteration."
+                        )
+
+                        # get new rings based on group id!
+                        new_rings: List[UniqueRingCoords] = [
+                            ring
+                            for ring in self.detected_rings
+                            if ring.group_id not in detected_rings_group_ids
+                        ]
+
+                        for new_ring in new_rings:
+                            rospy.loginfo(
+                                f"Saving ring with id: {new_ring.group_id}, color: {new_ring.color}"
+                            )
+                            detected_rings_group_ids.add(new_ring.group_id)
+
+                        detected_rings_count = len(self.detected_rings)
+
+                if detected_rings_count >= target_ring_detections:
+                    break
+
+            if detected_rings_count < target_ring_detections:
+                rospy.loginfo("Not all rings have been detected. Will start EXPLORING")
+                # get new goals now that we have explored the map
+                self.aditional_goals = self.map_manager.get_get_aditional_goals()
+                if len(self.aditional_goals) < 1:
+                    rospy.loginfo(
+                        "No new goals found. Will stop i failed to find all rings"
+                    )
+                    break
+                else:
+                    rospy.loginfo(
+                        f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
+                    )
+                    goals = self.aditional_goals
+
+            else:
+                rospy.loginfo("All rings have been detected. Will stop")
+                break
+
+        rospy.loginfo("I have finished my task")
+
 
 if __name__ == "__main__":
     rospy.init_node("brain")
     brain = Brain()
     brain.is_ready = True
-    brain.think_cylinder()
+    brain.think_rings()
     rospy.spin()
