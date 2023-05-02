@@ -3,7 +3,6 @@
 This script is used for detecting rings in images.
 """
 
-import math
 import sys
 from collections import Counter
 from typing import Tuple, List
@@ -19,15 +18,14 @@ from geometry_msgs.msg import Vector3, Pose, Quaternion
 from cv_bridge import CvBridge, CvBridgeError
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
+from combined.msg import UniqueRingCoords, DetectedRings
 
 # Tuple of center coordinates (x,y)
 # Tuple of axes lengths (width, height)
 # Float the angle of rotation of the elipse
 Ellipse = Tuple[Tuple[float, float], Tuple[float, float], float]
 
-LAST_PROCESSED_IMAGE_TIME = (
-    0  # Variable for storing the time of the last processed image
-)
+LAST_PROCESSED_IMAGE_TIME = 0  # Variable for storing the time of the last processed image
 
 
 class DetectedRing:
@@ -96,10 +94,7 @@ class RingGroup:
         Updates the average color of the group.
         """
         color_counter = Counter(
-            [
-                (ring.color.r, ring.color.g, ring.color.b, ring.color.a)
-                for ring in self.rings
-            ]
+            [(ring.color.r, ring.color.g, ring.color.b, ring.color.a) for ring in self.rings]
         )
         most_common_color = color_counter.most_common(1)[0][0]
         self.color = ColorRGBA(*most_common_color)
@@ -115,6 +110,27 @@ class RingGroup:
         self.update_avg_pose()
         self.update_avg_color()
         self.detections += 1
+
+    def convert_rgba_to_string(self) -> str:
+        """
+        Converts self.color to a string from rgba object.
+
+        Returns:
+            str: String representation of the color.
+        """
+        if self.color.r == 1 and self.color.g == 0 and self.color.b == 0:
+            return "red"
+
+        if self.color.r == 0 and self.color.g == 1 and self.color.b == 0:
+            return "green"
+
+        if self.color.r == 0 and self.color.g == 0 and self.color.b == 1:
+            return "blue"
+
+        if self.color.r == 0 and self.color.g == 0 and self.color.b == 0:
+            return "black"
+
+        return "unknown"
 
 
 class RingDetector:
@@ -134,9 +150,7 @@ class RingDetector:
         # Subscribe to rgb/depth image, and also synchronize the topics
         image_sub = message_filters.Subscriber("/camera/rgb/image_raw", Image)
         depth_sub = message_filters.Subscriber("/camera/depth/image_raw", Image)
-        time_synchronizer = message_filters.TimeSynchronizer(
-            [image_sub, depth_sub], 100
-        )
+        time_synchronizer = message_filters.TimeSynchronizer([image_sub, depth_sub], 100)
         time_synchronizer.registerCallback(self.image_callback)
 
         # Publiser for the visualization markers
@@ -157,13 +171,17 @@ class RingDetector:
 
         self.ring_groups: List[RingGroup] = []
 
+        self.min_num_of_detections: int = 3
+
         # Number of all the rings to be found
         # After this number is achieved this node exits
         self.num_of_all_rings: int = 10
 
-    def image_callback(
-        self, rgb_image_message: Image, depth_image_message: Image
-    ) -> None:
+        self.ring_group_publisher = rospy.Publisher(
+            "detected_ring_coords", DetectedRings, queue_size=10
+        )
+
+    def image_callback(self, rgb_image_message: Image, depth_image_message: Image) -> None:
         """
         Callback function for processing received image data.
 
@@ -209,9 +227,7 @@ class RingDetector:
             )
 
             # Extract contours from the binary image
-            contours, _ = cv2.findContours(
-                thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-            )
+            contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
             # Fit elipses to all extracted contours with enough points
             ellipses = [cv2.fitEllipse(cnt) for cnt in contours if cnt.shape[0] >= 20]
@@ -232,6 +248,7 @@ class RingDetector:
                 )
 
             self.publish_ring_groups()
+            self.publish_ring_groups_coords()
 
     def process_candidates_and_update_ring_groups(
         self,
@@ -257,15 +274,11 @@ class RingDetector:
 
             # Calculate the minimum and maximum x-coordinates of the inner ellipse
             inner_x_min = max(0, int(inner_center[0] - inner_avg_size / 2))
-            inner_x_max = min(
-                rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2)
-            )
+            inner_x_max = min(rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2))
 
             # Calculate the minimum and maximum y-coordinates of the inner ellipse
             inner_y_min = max(0, int(inner_center[1] - inner_avg_size / 2))
-            inner_y_max = min(
-                rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2)
-            )
+            inner_y_max = min(rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2))
 
             # Calculate the average size and center of the second ellipse (outer ellipse)
             outer_avg_size = (outer_ellipse[1][0] + outer_ellipse[1][1]) / 2
@@ -273,15 +286,11 @@ class RingDetector:
 
             # Calculate the minium and maximum x-coordinates of the outer ellipse
             outer_x_min = max(0, int(outer_center[0] - outer_avg_size / 2))
-            outer_x_max = min(
-                rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2)
-            )
+            outer_x_max = min(rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2))
 
             # Calculate the minimum and maximum y-coordinates of the outer ellipse
             outer_y_min = max(0, int(outer_center[1] - outer_avg_size / 2))
-            outer_y_max = min(
-                rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2)
-            )
+            outer_y_max = min(rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2))
 
             # Calculate the center of the candidate ellipse pair
             candidate_center_x = round((inner_x_min + inner_x_max) / 2)
@@ -290,21 +299,15 @@ class RingDetector:
             # Create a squared slice of the center (size center_neigh x center_neigh)
             center_neigh = 4
             center_depth_slice = depth_img[
-                (candidate_center_x - center_neigh) : (
-                    candidate_center_x + center_neigh
-                ),
-                (candidate_center_y - center_neigh) : (
-                    candidate_center_y + center_neigh
-                ),
+                (candidate_center_x - center_neigh) : (candidate_center_x + center_neigh),
+                (candidate_center_y - center_neigh) : (candidate_center_y + center_neigh),
             ]
             # self.debug_image_with_mouse(center_depth_slice)
             # Convert nan to 0 in center_depth_slice
             center_depth_slice = np.nan_to_num(center_depth_slice)
 
             if np.mean(center_depth_slice) > 0.1:
-                rospy.logdebug(
-                    "Not a valid ring, because inside values are not far away."
-                )
+                rospy.logdebug("Not a valid ring, because inside values are not far away.")
                 continue
 
             # Create a mask using both ellipses
@@ -487,13 +490,6 @@ class RingDetector:
             ):
                 self.ring_groups[i].add_ring(new_ring)
                 rospy.loginfo(f"Ring added to group {str(ring_group.group_id)}")
-                # if ring_group.detections > self.min_num_of_detections:
-                #     # TODO: self.publish_greet_instructions(ring_group)
-
-                #     if len(self.ring_groups) > self.num_of_all_rings:
-                #         rospy.loginfo("All rings have been detected!")
-                #         rospy.loginfo("Shutting down the ring detector...")
-                #         sys.exit(0)
                 return
 
         # # If the ring is not part of any group, create a new group
@@ -550,6 +546,22 @@ class RingDetector:
         }
 
         return color_rgba_mapping[detected_color]
+
+    def publish_ring_groups_coords(self) -> None:
+        """
+        Publishes the coordinates of the ring groups.
+        """
+        rospy.logdebug("Publishing new ring group coordinates...")
+
+        detected_rings_msg = DetectedRings()
+        for ring_group in self.ring_groups:
+            ring_group_coords = UniqueRingCoords()
+            ring_group_coords.group_id = ring_group.group_id
+            ring_group_coords.ring_pose = ring_group.avg_pose
+            ring_group_coords.color = ring_group.convert_rgba_to_string()
+            detected_rings_msg.array.append(ring_group_coords)
+
+        self.ring_group_publisher.publish(detected_rings_msg)
 
     def publish_ring_groups(self) -> None:
         """

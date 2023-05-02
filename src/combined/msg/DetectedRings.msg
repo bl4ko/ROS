@@ -1,0 +1,1 @@
+UniqueRingCoords[] array

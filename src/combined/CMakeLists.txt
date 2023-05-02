@@ -17,6 +17,8 @@ add_message_files(DIRECTORY msg
   FILES
   UniqueFaceCoords.msg
   DetectedFaces.msg
+  UniqueRingCoords.msg
+  DetectedRings.msg
   CylinderGreetInstructions.msg
 )
 

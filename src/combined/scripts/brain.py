@@ -33,7 +33,9 @@ def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
         frame (FrameType): The current stack frame.
     """
     signal_name = signal.Signals(sig).name
-    frame_info = f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
+    frame_info = (
+        f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
+    )
     rospy.loginfo(f"Program interrupted by {signal_name} signal, shutting down.")
     rospy.loginfo(f"Signal received at: {frame_info}")
     rospy.signal_shutdown(f"{signal_name} received")
@@ -56,18 +58,14 @@ class Brain:
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
         rospy.loginfo("Map manager is ready")
-        self.move_base_client = actionlib.SimpleActionClient(
-            "move_base", MoveBaseAction
-        )
+        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
         rospy.loginfo("Waiting for move_base server.")
         self.move_base_client.wait_for_server()
         self.velocity_publisher = rospy.Publisher(
             "mobile_base/commands/velocity", Twist, queue_size=10
         )
         self.init_planner()
-        self.markers_timer = rospy.Timer(
-            rospy.Duration(1), lambda event: self.map_show_markers()
-        )
+        self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: self.map_show_markers())
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
@@ -95,9 +93,7 @@ class Brain:
         self.sound_player = SoundPlayer()
         self.aditional_goals = []
 
-        self.current_goal_pub = rospy.Publisher(
-            "brain_current_goal", Marker, queue_size=10
-        )
+        self.current_goal_pub = rospy.Publisher("brain_current_goal", Marker, queue_size=10)
         self.current_goal_marker_id = 0
 
         # for moving arm
@@ -352,8 +348,7 @@ class Brain:
             if in_sight_vertices:
                 in_sight_vertices.sort(
                     key=lambda vertex: math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2
-                        + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
                     )
                 )
                 nearest_vertex = in_sight_vertices[0]
@@ -363,9 +358,7 @@ class Brain:
 
                 for vertex in unvisited_vertices:
                     distance = math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2
-                        + (current_vertex[1] - vertex[1]) ** 2
-
+                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
                     )
                     if distance < nearest_distance:
                         nearest_distance = distance
@@ -390,12 +383,8 @@ class Brain:
         Returns:
             Tuple[float, float, float, float]: quaternion representing the orientation
         """
-        angle = math.atan2(
-            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
-        )
-        angle = math.atan2(
-            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
-        )
+        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
+        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
         quaternion = quaternion_from_euler(0, 0, angle)
         return quaternion
 
@@ -430,11 +419,7 @@ class Brain:
 
                 self.move_to_goal(goal[0], goal[1], *quaternion)
 
-
-
                 self.rotate(360, angular_speed=0.7)
-
-
 
                 with self.detected_faces_lock:
                     if len(self.detected_faces) > detected_faces_count:
@@ -476,9 +461,7 @@ class Brain:
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo(
-                        "No new goals found. Will stop i failed to find all faces"
-                    )
+                    rospy.loginfo("No new goals found. Will stop i failed to find all faces")
                     break
                 else:
                     rospy.loginfo(
@@ -504,9 +487,7 @@ class Brain:
             current_cylinder_pose = self.cylinder_coords.pop(0)
             current_cylinder_color = self.cylinder_colors.pop(0)
             current_greet_pose = self.cylinder_greet_poses.pop(0)
-            self.greet_cylinder(
-                current_cylinder_pose, current_cylinder_color, current_greet_pose
-            )
+            self.greet_cylinder(current_cylinder_pose, current_cylinder_color, current_greet_pose)
 
     # def move_as_close_to_as_possible(self, x_coordinate, y_coordinate, speed=0.3):
     #     """
@@ -603,7 +584,8 @@ class Brain:
         """
 
         goals = self.map_manager.get_goals()
-        num_of_cylinders = 4
+        ring_count = 4
+        rings_found = 0
 
         while not rospy.is_shutdown():
             optimized_path = self.nearest_neighbor_path(goals, goals[0])
@@ -624,15 +606,11 @@ class Brain:
                 self.visit_found_cylinders()
 
             if not self.all_cylinders_found:
-                rospy.loginfo(
-                    "Not all cylinders have been detected. Will start EXPLORING"
-                )
+                rospy.loginfo("Not all cylinders have been detected. Will start EXPLORING")
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo(
-                        "No new goals found. Will stop i failed to find all cylinders"
-                    )
+                    rospy.loginfo("No new goals found. Will stop i failed to find all cylinders")
                     break
                 else:
                     rospy.loginfo(
@@ -641,9 +619,10 @@ class Brain:
                     goals = self.aditional_goals
 
             else:
-                rospy.loginfo("All faces have been detected. Will stop")
+                rospy.loginfo("All cylinders have been detected. Will stop")
                 break
 
+        rospy.loginf
         rospy.loginfo("I have finished my task")
 
 
