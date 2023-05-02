@@ -622,7 +622,6 @@ class Brain:
                 rospy.loginfo("All cylinders have been detected. Will stop")
                 break
 
-        rospy.loginf
         rospy.loginfo("I have finished my task")
 
 
