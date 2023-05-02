@@ -17,7 +17,9 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import Pose
 from combined.msg import UniqueRingCoords
 
-LAST_PROCESSED_IMAGE_TIME = 0  # Variable for storing the time of the last processed image
+LAST_PROCESSED_IMAGE_TIME = (
+    0  # Variable for storing the time of the last processed image
+)
 Ellipse = Tuple[Tuple[float, float], Tuple[float, float], float]
 
 
@@ -30,7 +32,9 @@ class ParkingDetector:
         rospy.init_node("parking_detector", log_level=log_level, anonymous=True)
 
         # Publisher for the parking spot
-        self.parking_spot_publisher = rospy.Publisher("parking_spot", Pose, queue_size=10)
+        self.parking_spot_publisher = rospy.Publisher(
+            "parking_spot", Pose, queue_size=10
+        )
 
         # An object we use for converting images between ROS format and OpenCV format
         self.bridge = CvBridge()
@@ -43,19 +47,33 @@ class ParkingDetector:
 
         rospy.loginfo("Waiting for message from brain to start parking...")
         data = rospy.wait_for_message("green_ring_coords", UniqueRingCoords)
-        rospy.loginfo("Received message from brain. Starting to search for parking spot...")
+        rospy.loginfo(
+            "Received message from brain. Starting to search for parking spot..."
+        )
 
-        self.parking_pose = data.pose
+        # dummyPose = Pose()
+        # dummyPose.position.x = 0
+        # dummyPose.position.y = 0
+        # dummyPose.position.z = 0
+        # dummyPose.orientation.x = 0
+        # dummyPose.orientation.y = 0
+        # dummyPose.orientation.z = 0
+        # dummyPose.orientation.w = 1
+        # self.parking_pose = dummyPose
+
+        self.parking_pose = data.ring_pose
         # Max distance between parking pose and found parking spot
         self.max_distance = 0.3
-        self.arm_image_sub = rospy.Subscriber("arm_camera/rgb/image_raw", Image)
-        self.arm_depth_sub = rospy.Subscriber("arm_camera/depth/image_raw", Image)
+        arm_image_sub = rospy.Subscriber("/arm_camera/rgb/image_raw", Image)
+        arm_depth_sub = rospy.Subscriber("/arm_camera/depth/image_raw", Image)
         time_synchronizer = message_filters.TimeSynchronizer(
-            [self.arm_image_sub, self.arm_depth_sub], 100
+            [arm_image_sub, arm_depth_sub], 100
         )
         time_synchronizer.registerCallback(self.image_callback)
 
-    def image_callback(self, rgb_image_message: Image, depth_image_message: Image) -> None:
+    def image_callback(
+        self, rgb_image_message: Image, depth_image_message: Image
+    ) -> None:
         """
         Callback function for processing received image data.
 
@@ -101,7 +119,9 @@ class ParkingDetector:
             )
 
             # Extract contours from the binary image
-            contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(
+                thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
+            )
 
             # Fit elipses to all extracted contours with enough points
             ellipses = [cv2.fitEllipse(cnt) for cnt in contours if cnt.shape[0] >= 20]
@@ -145,29 +165,37 @@ class ParkingDetector:
 
             # Calculate the minimum and maximum x-coordinates of the inner ellipse
             inner_x_min = max(0, int(inner_center[0] - inner_avg_size / 2))
-            inner_x_max = min(rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2))
+            inner_x_max = min(
+                rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2)
+            )
 
             # Calculate the minimum and maximum y-coordinates of the inner ellipse
             inner_y_min = max(0, int(inner_center[1] - inner_avg_size / 2))
-            inner_y_max = min(rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2))
+            inner_y_max = min(
+                rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2)
+            )
 
             # Calculate the center of the candidate ellipse pair
             candidate_center_x = round((inner_x_min + inner_x_max) / 2)
             candidate_center_y = round((inner_y_min + inner_y_max) / 2)
 
             # Create a squared slice of the center (size center_neigh x center_neigh)
-            center_neigh = 4
-            center_depth_slice = depth_img[
-                (candidate_center_x - center_neigh) : (candidate_center_x + center_neigh),
-                (candidate_center_y - center_neigh) : (candidate_center_y + center_neigh),
-            ]
+            # center_neigh = 4
+            # center_depth_slice = depth_img[
+            #     (candidate_center_x - center_neigh) : (
+            #         candidate_center_x + center_neigh
+            #     ),
+            #     (candidate_center_y - center_neigh) : (
+            #         candidate_center_y + center_neigh
+            #     ),
+            # ]
             # self.debug_image_with_mouse(center_depth_slice)
             # Convert nan to 0 in center_depth_slice
-            center_depth_slice = np.nan_to_num(center_depth_slice)
+            # center_depth_slice = np.nan_to_num(center_depth_slice)
 
-            if np.mean(center_depth_slice) > 0.1:
-                rospy.logdebug("Not a valid ring, because inside values are not far away.")
-                continue
+            # if np.mean(center_depth_slice) > 0.1:
+            #     rospy.logdebug("Not a valid ring, because inside values are not far away.")
+            #     continue
 
             # Create a mask using both ellipses
             ring_mask = self.ellipse2array(
