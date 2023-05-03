@@ -185,34 +185,6 @@ class RingDetector:
             self.rgb_image_message = rgb_image_msg
             self.depth_image_message = depth_image_msg
 
-    def is_partial_circle(self, contour, min_angle, max_angle, img, thresh):
-        """
-        Function to check if a contour represents a partial circle.
-        min_angle and max_angle are in degrees.
-        """
-        area = cv2.contourArea(contour)
-        if area == 0:
-            return False
-
-        ellipse = cv2.fitEllipse(contour)
-        _, (major_axis, minor_axis), angle = ellipse
-
-        aspect_ratio = float(minor_axis) / major_axis
-        if aspect_ratio < 0.5:
-            return False
-
-        mask = np.zeros_like(img)
-        cv2.ellipse(mask, ellipse, 255, -1)
-        masked_contour = cv2.bitwise_and(thresh, thresh, mask=mask)
-        nonzero_area = cv2.countNonZero(masked_contour)
-        coverage_ratio = float(nonzero_area) / area
-
-        angle_range_ratio = (max_angle - min_angle) / 360.0
-
-        return (
-            coverage_ratio >= angle_range_ratio * 0.5 and coverage_ratio <= angle_range_ratio * 1.5
-        )
-
     def detect_rings(self) -> None:
         """
         Callback function for processing received image data.
