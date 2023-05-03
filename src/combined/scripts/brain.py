@@ -25,6 +25,9 @@ from combined.msg import CylinderGreetInstructions
 from combined.msg import UniqueRingCoords
 from move_arm import Arm_Mover
 from typing import List
+from laser_manager import LaserManager
+from nav_msgs.msg import Odometry
+import numpy as np
 
 
 def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
@@ -81,6 +84,9 @@ class Brain:
         self.detected_rings_subscriber = rospy.Subscriber(
             "/detected_ring_coords", DetectedRings, self.ring_callback
         )
+        self.detected_ground_rings_subscriber = rospy.Subscriber(
+            "/detected_ground_ring_coords", DetectedRings, self.ground_ring_callback
+        )
 
         # for cylinder handling
         rospy.Subscriber(
@@ -101,6 +107,8 @@ class Brain:
         self.detected_faces_lock = threading.Lock()
         self.detected_rings: List[UniqueRingCoords] = []
         self.detected_rings_lock = threading.Lock()
+        self.detected_ground_rings: List[UniqueRingCoords] = []
+        self.detected_ground_rings_lock = threading.Lock()
         self.sound_player = SoundPlayer()
         self.aditional_goals = []
 
@@ -114,6 +122,8 @@ class Brain:
         rospy.sleep(1)
         self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
 
+        self.arm_pose = "extend_ring"
+
         # /green_ring_coords
         self.green_ring_coords_pub = rospy.Publisher(
             "green_ring_coords", UniqueRingCoords, queue_size=10
@@ -123,6 +133,13 @@ class Brain:
         rospy.Subscriber("parking_spot", Pose, self.parking_callback)
         self.parking_lock = threading.Lock()
         self.parking_spot = None
+
+        self.laser_manager = LaserManager()
+
+        self.current_robot_pose = None
+        self.odom_sub = rospy.Subscriber(
+            "/odom", Odometry, self.current_robot_pose_callback
+        )
 
     def init_planner(self):
         """
@@ -173,9 +190,23 @@ class Brain:
         with self.detected_rings_lock:
             self.detected_rings = msg.array
 
+    def ground_ring_callback(self, msg: DetectedRings):
+        """
+        Callback function for the ring subscriber. Stores
+        detected rings in a thread-safe manner.
+
+        Args:
+            msg (DetectedRings): The message containing the detected rings.
+        """
+        with self.detected_ground_rings_lock:
+            self.detected_ground_rings = msg.array
+
     def parking_callback(self, msg: Pose):
         with self.parking_lock:
             self.parking_spot = msg
+
+    def current_robot_pose_callback(self, data):
+        self.current_robot_pose = data.pose.pose
 
     def move_to_goal(
         self,
@@ -325,14 +356,16 @@ class Brain:
         """
         return deg * math.pi / 180
 
-    def rotate(self, angle_deg, angular_speed=0.7):
+    def rotate(self, angle_deg, angular_speed=0.7, clockwise=True):
         """
         Rotates the turtle bot by the specified angle at the given angular speed.
 
         Args:
             angle_deg (float): The angle in degrees the turtle bot should rotate.
             angular_speed (float, optional): The angular speed at which the turtle bot rotates.
-                                             Defaults to 0.7.
+                                            Defaults to 0.7.
+            clockwise (bool, optional): The rotation direction. True for clockwise, False for counterclockwise.
+                                        Defaults to True.
         """
         rospy.loginfo("Rotating.")
 
@@ -342,9 +375,9 @@ class Brain:
         twist.linear.z = 0
         twist.angular.x = 0
         twist.angular.y = 0
-        twist.angular.z = angular_speed
+        twist.angular.z = angular_speed if not clockwise else -angular_speed
 
-        # counter clockwise
+        # total angle in radians
         total_angle = self.degrees_to_rad(angle_deg)
 
         t_0 = rospy.Time.now().to_sec()
@@ -352,7 +385,7 @@ class Brain:
         while angle_rotated < total_angle:
             self.velocity_publisher.publish(twist)
             t_1 = rospy.Time.now().to_sec()
-            angle_rotated = angular_speed * (t_1 - t_0)
+            angle_rotated = abs(angular_speed * (t_1 - t_0))
 
         # stop the robot spining
         twist.angular.z = 0
@@ -752,16 +785,162 @@ class Brain:
 
         rospy.loginfo("I have finished my task")
 
+    def get_closest_ring(self) -> Tuple[UniqueRingCoords, float]:
+        """
+        get closest ring to current position
+        """
+        with self.detected_rings_lock:
+            closest_ring = None
+            closest_distance = float("inf")
+            for ring in self.detected_rings:
+                distance = self.map_manager.euclidean_distance(
+                    self.current_robot_pose.position.x,
+                    self.current_robot_pose.position.y,
+                    ring.ring_pose.position.x,
+                    ring.ring_pose.position.y,
+                )
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_ring = ring
+
+            return closest_ring, closest_distance
+
+    def get_robot_distance_to_point(self, x, y):
+        """
+        Returns robot distance to point (x,y)
+        """
+
+        # rospy.loginfo(
+        #     f"Getting distance from robot to point ({x},{y}) in map frame, current robot pose: "
+        #     f"{self.current_robot_pose}"
+        # )
+
+        return self.map_manager.euclidean_distance(
+            self.current_robot_pose.position.x, self.current_robot_pose.position.y, x, y
+        )
+
+    def move_as_close_to_as_possible(self, x, y, speed=0.1):
+        """
+        Moves the robot as close to point (x,y) ass possible, moving in straight direction,
+        without hitting any obstacles using twist messages.
+        """
+
+        twist_msg = Twist()
+
+        # we will be moving forward
+        twist_msg.linear.x = abs(speed)
+
+        twist_msg.linear.y = 0
+        twist_msg.linear.z = 0
+        twist_msg.angular.x = 0
+        twist_msg.angular.y = 0
+        twist_msg.angular.z = 0
+
+        t0 = rospy.Time.now().to_sec()
+        # we use travelled distance just in case if we will need it to return back
+        travelled_distance = 0
+
+        dist_prev = self.get_robot_distance_to_point(y, x)
+        derivative_threshold = 0.0013
+
+        prev_ten_distances = []
+        while True:
+            dist_to_obj = self.get_robot_distance_to_point(x, y)
+
+            rospy.loginfo(f"distance to goal:{dist_to_obj}")
+
+            # if dist_to_obj > dist_prev:
+            #     break
+
+            # dist_prev = dist_to_obj
+
+            if self.laser_manager.is_too_close_to_obstacle():
+                rospy.loginfo("laser is too close to obstacle. Stopping")
+                break
+
+            if dist_to_obj <= 0.03:
+                rospy.loginfo("distance is below 0.03 stopping")
+                break
+            prev_ten_distances.append(dist_to_obj)
+
+            if len(prev_ten_distances) > 20:
+                prev_ten_distances.pop(0)
+
+            # Calculate the derivative of the distance over time
+            if len(prev_ten_distances) >= 20:
+                derivative = np.gradient(prev_ten_distances)[-1]
+                if derivative > 0:
+                    rospy.loginfo(f"Derivative: {derivative}")
+
+                # Check if the derivative is above the threshold
+                if derivative > derivative_threshold:
+                    rospy.loginfo("Derivative threshold exceeded. Stopping.")
+                    break
+
+            self.velocity_publisher.publish(twist_msg)
+            t1 = rospy.Time.now().to_sec()
+
+            travelled_distance = abs(speed) * (t1 - t0)
+
+        # we now stop the robot immediately
+        twist_msg.linear.x = 0
+        self.velocity_publisher.publish(twist_msg)
+
+        # we return the distance travelled
+        return travelled_distance
+
+    def auto_adjust_arm_camera(self, event):
+        """
+        auto adjust arm camera
+        """
+
+        # get closest ring
+
+        # rospy.loginfo(f"Finding closest rings")
+        closest_ring, closest_distance = self.get_closest_ring()
+
+        if closest_ring is not None:
+            rospy.loginfo(
+                # f"Closest ring is {closest_ring.group_id} with color {closest_ring.color} found at"
+                f" {closest_distance} meters"
+            )
+
+            # if closest ring is within 1 meter adjust camera
+
+            distance_to_wall = self.laser_manager.distance_to_obstacle
+
+            if (
+                self.arm_pose == "extend_ring"
+                and closest_distance < 0.6
+                or distance_to_wall < 0.7
+            ):
+                rospy.loginfo("Adjusting arm camera")
+                self.arm_pose = "adjust_ring_close"
+                self.arm_mover.arm_movement_pub.publish(
+                    self.arm_mover.extend_ring_close
+                )
+
+            elif (
+                self.arm_pose == "adjust_ring_close"
+                and closest_distance >= 0.6
+                and distance_to_wall > 0.7
+            ):
+                rospy.loginfo("Adjusting arm camera")
+                self.arm_pose = "extend_ring"
+                self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
+
     def think_rings_cylinders(self):
         """
         search and greet cylinders and search rings
         """
 
         detected_rings_count = 0
-        target_ring_detections = 1
+        target_ring_detections = 4
         detected_rings_group_ids = set()
 
         goals = self.map_manager.get_goals()
+
+        arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
 
         while not rospy.is_shutdown():
             optimized_path = self.nearest_neighbor_path(goals, goals[0])
@@ -840,6 +1019,7 @@ class Brain:
 
         # perform parking
         # find green ring
+
         green_ring: UniqueRingCoords = None
         with self.detected_rings_lock:
             for ring in self.detected_rings:
@@ -854,11 +1034,11 @@ class Brain:
         # start searching for ground rings
         self.green_ring_coords_pub.publish(green_ring)
 
-        # wait for message
+        # self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring_close)
 
         # compute approximate location to park
         aproxx_park_location = self.get_object_greet_pose(
-            green_ring.ring_pose.position.x, green_ring.ring_pose.position.y, erosion=5
+            green_ring.ring_pose.position.x, green_ring.ring_pose.position.y, erosion=6
         )
         self.move_to_goal(
             aproxx_park_location.position.x,
@@ -869,29 +1049,185 @@ class Brain:
             aproxx_park_location.orientation.w,
         )
 
-        # rotate to find the green ring
-        self.rotate(360, angular_speed=0.2)
+        arm_cam_timer.shutdown()
 
-        rospy.loginfo("waiting for parking spot message")
+        # close camera
+        self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring_close)
+
+        rospy.loginfo(
+            f"POSITION aproxx_park_location: {aproxx_park_location.position.x}, {aproxx_park_location.position.y}"
+        )
+        rospy.loginfo(
+            f"POSITION  green_ring: {green_ring.ring_pose.position.x}, {green_ring.ring_pose.position.y}"
+        )
+
+        # log distance to green ring
+        disttance_to_green_ring = self.map_manager.euclidean_distance(
+            green_ring.ring_pose.position.x,
+            green_ring.ring_pose.position.y,
+            aproxx_park_location.position.x,
+            aproxx_park_location.position.y,
+        )
+        rospy.loginfo(
+            f"Distance between green ring and approximate parking spot: {disttance_to_green_ring}"
+        )
+
+        # for i in range(1):
+        #     # get robot distance to green ring
+        #     robot_distance_to_green_ring = self.map_manager.euclidean_distance(
+        #         green_ring.ring_pose.position.x,
+        #         green_ring.ring_pose.position.y,
+        #         self.current_robot_pose.position.x,
+        #         self.current_robot_pose.position.y,
+        #     )
+
+        #     rospy.loginfo(
+        #         f"POSITION green_ring: {green_ring.ring_pose.position.x}, {green_ring.ring_pose.position.y}"
+        #     )
+        #     rospy.loginfo(
+        #         f"POSITION  robot: {self.current_robot_pose.position.x}, {self.current_robot_pose.position.y}"
+        #     )
+
+        #     rospy.loginfo(
+        #         f"Distance between green ring and robot: {robot_distance_to_green_ring}"
+        #     )
+
+        #     # if distance is too big, move closer
+        #     if robot_distance_to_green_ring > 0.55:
+        #         rospy.loginfo("Distance to green ring is too big. Will move closer")
+        #         twist = Twist()
+        #         twist.linear.x = 0.2
+        #         self.velocity_publisher.publish(twist)
+        #         rospy.sleep(0.5)
+        #         twist.linear.x = 0.0
+        #         self.velocity_publisher.publish(twist)
+
+        #     if robot_distance_to_green_ring < 0.45:
+        #         rospy.loginfo("Robot is too close to the green ring. Will move back")
+        #         twist = Twist()
+        #         twist.linear.x = -0.2
+        #         self.velocity_publisher.publish(twist)
+        #         rospy.sleep(0.5)
+        #         twist.linear.x = 0.0
+        #         self.velocity_publisher.publish(twist)
+
+        #     # if distance is just right, stop
+        #     if (
+        #         robot_distance_to_green_ring < 0.55
+        #         and robot_distance_to_green_ring > 0.45
+        #     ):
+        #         rospy.loginfo("Distance to green ring is just right. Will stop")
+        #         twist = Twist()
+        #         twist.linear.x = 0.0
+        #         self.velocity_publisher.publish(twist)
+        #         break
+
+        for i in range(10):
+            # get robot distance to green ring
+            robot_distance_to_wall = self.laser_manager.distance_to_obstacle
+
+            rospy.loginfo(f"Distance between wall and robot: {robot_distance_to_wall}")
+
+            # if distance is too big, move closer
+            if robot_distance_to_wall > 0.75:
+                rospy.loginfo("Distance to green ring is too big. Will move closer")
+                twist = Twist()
+                twist.linear.x = 0.2
+                self.velocity_publisher.publish(twist)
+                rospy.sleep(0.5)
+                twist.linear.x = 0.0
+                self.velocity_publisher.publish(twist)
+
+            if robot_distance_to_wall < 0.7:
+                rospy.loginfo("Robot is too close wall. Will move back")
+                twist = Twist()
+                twist.linear.x = -0.2
+                self.velocity_publisher.publish(twist)
+                rospy.sleep(0.5)
+                twist.linear.x = 0.0
+                self.velocity_publisher.publish(twist)
+
+            # if distance is just right, stop
+            if robot_distance_to_wall < 0.75 and robot_distance_to_wall > 0.7:
+                rospy.loginfo("Distance to wall is just right. Will stop")
+                twist = Twist()
+                twist.linear.x = 0.0
+                self.velocity_publisher.publish(twist)
+                break
+
+        max_distance = 0.3
+
+        # rotate to find the green ring
+        self.rotate(70, angular_speed=0.2)
+
+        self.rotate(140, angular_speed=0.2, clockwise=False)
+
+        # hide camera
+        self.arm_mover.arm_movement_pub.publish(self.arm_mover.retract)
+
+        # go to ground ring that is closest to the green ring
+        with self.detected_ground_rings_lock:
+            closest_ground_ring = None
+            closest_distance = 100000
+            for ground_ring in self.detected_ground_rings:
+                distance = self.map_manager.euclidean_distance(
+                    ground_ring.ring_pose.position.x,
+                    ground_ring.ring_pose.position.y,
+                    green_ring.ring_pose.position.x,
+                    green_ring.ring_pose.position.y,
+                )
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_ground_ring = ground_ring
+
+        if closest_ground_ring is None:
+            rospy.loginfo("No ground ring found. ERROR")
+            return
+
+        rospy.loginfo("Found best possible ground ring. Will move to it")
+
+        aproxx_park_location = self.get_object_greet_pose(
+            closest_ground_ring.ring_pose.position.x,
+            closest_ground_ring.ring_pose.position.y,
+            erosion=6,
+        )
+
+        self.move_to_goal(
+            aproxx_park_location.position.x,
+            aproxx_park_location.position.y,
+            aproxx_park_location.orientation.x,
+            aproxx_park_location.orientation.y,
+            aproxx_park_location.orientation.z,
+            aproxx_park_location.orientation.w,
+        )
+
+        rospy.loginfo("Initiating parking procedure")
+
+        dist_traveled = self.move_as_close_to_as_possible(
+            closest_ground_ring.ring_pose.position.x,
+            closest_ground_ring.ring_pose.position.y,
+        )
+
+        rospy.loginfo(f"The distance traveled to the ground ring is {dist_traveled}")
 
         # wait for message from parking subscriber in while loop
-        while not rospy.is_shutdown():
-            rospy.sleep(0.1)
-            with self.parking_lock:
-                if self.parking_spot is not None:
-                    rospy.loginfo("I have found a parking spot")
+        # while not rospy.is_shutdown():
+        #     rospy.sleep(0.1)
+        #     with self.parking_lock:
+        #         if self.parking_spot is not None:
+        #             rospy.loginfo("I have found a parking spot")
 
-                    # move to parking spot
-                    self.move_to_goal(
-                        self.parking_spot.position.x,
-                        self.parking_spot.position.y,
-                        self.parking_spot.orientation.x,
-                        self.parking_spot.orientation.y,
-                        self.parking_spot.orientation.z,
-                        self.parking_spot.orientation.w,
-                    )
-                    rospy.loginfo("I have parked")
-                    break
+        #             # move to parking spot
+        #             self.move_to_goal(
+        #                 self.parking_spot.position.x,
+        #                 self.parking_spot.position.y,
+        #                 self.parking_spot.orientation.x,
+        #                 self.parking_spot.orientation.y,
+        #                 self.parking_spot.orientation.z,
+        #                 self.parking_spot.orientation.w,
+        #             )
+        #             rospy.loginfo("I have parked")
+        #             break
 
         rospy.loginfo("I have finished my task")
 

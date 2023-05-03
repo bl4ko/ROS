@@ -534,6 +534,21 @@ class MapManager:
         robot_position = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
         return robot_position
 
+    def get_robot_position_pose(self) -> PoseWithCovarianceStamped:
+        """
+        Get the current robot position with pose.
+
+        Returns:
+            Tuple[float, float]: The current robot position (x, y).
+        """
+        rospy.loginfo("Waiting for amcl_pose...")
+        pose_msg = rospy.wait_for_message(
+            "/amcl_pose", PoseWithCovarianceStamped, timeout=5.0
+        )
+        rospy.loginfo("Received amcl_pose.")
+
+        return pose_msg.pose
+
     def init_goals(self) -> None:
         """
         Transforms branch points to world coordinates and sorts them by distance to the robot,
@@ -952,6 +967,14 @@ class MapManager:
         accessible_map_copy = cv2.erode(
             accessible_map_copy, kernel, iterations=erosion_iter
         )
+
+        # save_image(accessible_map_copy, "accessible_map_copy.png")
+
+        debugimg = np.zeros_like(accessible_map_copy)
+        # keep only non-zero values
+        debugimg[accessible_map_copy > 0] = 255
+
+        cv2.imwrite("acemap_debug.png", debugimg)
 
         x_close, y_close = self.nearest_nonzero_to_point(accessible_map_copy, c_x, c_y)
 

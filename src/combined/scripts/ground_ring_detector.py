@@ -16,6 +16,10 @@ from tf2_geometry_msgs import PointStamped
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Pose
 from combined.msg import UniqueRingCoords
+from visualization_msgs.msg import Marker, MarkerArray
+from geometry_msgs.msg import Vector3, Pose, Quaternion
+from std_msgs.msg import ColorRGBA
+import random
 
 LAST_PROCESSED_IMAGE_TIME = (
     0  # Variable for storing the time of the last processed image
@@ -44,26 +48,31 @@ class ParkingDetector:
 
         # Object we use for transforming between coordinate frames
         self.tf_buf = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
+
+        self.markers_pub = rospy.Publisher(
+            "parking_markers", MarkerArray, queue_size=1000
+        )
 
         rospy.loginfo("Waiting for message from brain to start parking...")
-        data = rospy.wait_for_message("green_ring_coords", UniqueRingCoords)
+        # data = rospy.wait_for_message("green_ring_coords", UniqueRingCoords)
         rospy.loginfo(
             "Received message from brain. Starting to search for parking spot..."
         )
 
-        # dummyPose = Pose()
-        # dummyPose.position.x = 0
-        # dummyPose.position.y = 0
-        # dummyPose.position.z = 0
-        # dummyPose.orientation.x = 0
-        # dummyPose.orientation.y = 0
-        # dummyPose.orientation.z = 0
-        # dummyPose.orientation.w = 1
-        # self.parking_pose = dummyPose
+        dummyPose = Pose()
+        dummyPose.position.x = 0
+        dummyPose.position.y = 0
+        dummyPose.position.z = 0
+        dummyPose.orientation.x = 0
+        dummyPose.orientation.y = 0
+        dummyPose.orientation.z = 0
+        dummyPose.orientation.w = 1
+        self.parking_pose = dummyPose
 
-        self.parking_pose = data.ring_pose
+        # self.parking_pose = data.ring_pose
         # Max distance between parking pose and found parking spot
-        self.max_distance = 0.3
+        self.max_distance = 10000
         arm_image_sub = message_filters.Subscriber("/arm_camera/rgb/image_raw", Image)
         arm_depth_sub = message_filters.Subscriber("/arm_camera/depth/image_raw", Image)
         time_synchronizer = message_filters.TimeSynchronizer(
@@ -214,6 +223,22 @@ class ParkingDetector:
             )
 
             if ring_pose is not None:
+                marker = Marker()
+                markers = MarkerArray()
+
+                marker.header.stamp = rospy.Time(0)
+                marker.header.frame_id = "map"
+                marker.pose = ring_pose
+                marker.type = Marker.CUBE
+                marker.action = Marker.ADD
+                marker.lifetime = rospy.Duration.from_sec(20)
+                marker.scale = Vector3(0.1, 0.1, 0.1)
+                marker.color = ColorRGBA(0.0, 1.0, 0.0, 1.0)
+                marker.id = random.randint(0, 1000000)
+                markers.markers.append(marker)
+
+                self.markers_pub.publish(markers)
+
                 rospy.loginfo("Valid ring pose found!")
                 rospy.logdebug(
                     f"Pose: (x={ring_pose.position.x}, y={ring_pose.position.y},"
@@ -228,6 +253,9 @@ class ParkingDetector:
                     self.parking_spot_publisher.publish(ring_pose)
                     rospy.loginfo("Ring pose published. My job is done. Bye!")
                     sys.exit(0)
+
+                else:
+                    rospy.loginfo("Ring is too far away from parking pose!")
 
     def ellipse2array(
         self,
@@ -292,7 +320,7 @@ class ParkingDetector:
         point_s.point.x = -y
         point_s.point.y = 0
         point_s.point.z = x
-        point_s.header.frame_id = "camera_rgb_optical_frame"
+        point_s.header.frame_id = "arm_camera_rgb_optical_frame"
         point_s.header.stamp = stamp
         # print("point_s: ", point_s)
 
