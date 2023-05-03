@@ -55,12 +55,8 @@ class MapManager:
             #     "/move_base/global_costmap/costmap", OccupancyGrid, self.cost_map_callback
             # )
             self.map_lock = threading.Lock()  # Add a lock for the map attribute
-            self.cost_map_lock = (
-                threading.Lock()
-            )  # Add a lock for the cost map attribute
-            self.marker_publisher = rospy.Publisher(
-                "goal_markers", MarkerArray, queue_size=100
-            )
+            self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
+            self.marker_publisher = rospy.Publisher("goal_markers", MarkerArray, queue_size=100)
             self.goals_ready = False
             self.goal_points = []
             self.map_transform = TransformStamped()
@@ -101,9 +97,7 @@ class MapManager:
             self.size_x = map_data.info.width
             self.size_y = map_data.info.height
 
-            rospy.loginfo(
-                "Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y))
-            )
+            rospy.loginfo("Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y)))
 
             if self.size_x < 3 or self.size_y < 3:
                 rospy.loginfo(
@@ -184,9 +178,7 @@ class MapManager:
         in a radius around the robot of 10 pixels around the robot
         """
         try:
-            self.tf_buf.can_transform(
-                "map", "base_link", rospy.Time(0), rospy.Duration(3.0)
-            )
+            self.tf_buf.can_transform("map", "base_link", rospy.Time(0), rospy.Duration(3.0))
 
             ### Give me where is the 'base_link' frame relative to the 'map' frame at the latest available time
             coords = self.tf_buf.lookup_transform("map", "base_link", rospy.Time(0))
@@ -230,14 +222,9 @@ class MapManager:
             # #has to include more than 40 pixels
             # print("centroid",stats[i])
 
-            if (
-                self.map[int(centroid[1]), int(centroid[0])] == 255
-                and stats[i + 1][4] > 40
-            ):
+            if self.map[int(centroid[1]), int(centroid[0])] == 255 and stats[i + 1][4] > 40:
                 additional_goals.append((centroid[0], centroid[1]))
-                cv2.circle(
-                    unsearched_space, (int(centroid[0]), int(centroid[1])), 1, 60, -1
-                )
+                cv2.circle(unsearched_space, (int(centroid[0]), int(centroid[1])), 1, 60, -1)
             elif stats[i + 1][4] > 40:
                 # centroid center is not in the safe space
                 # check if any of the points in the bounding box are in the safe space
@@ -275,8 +262,7 @@ class MapManager:
         for point in self.branch_points:
             # get cost of point
             if not (
-                self.in_map_bounds(point[0], point[1])
-                and self.can_move_to(point[0], point[1])
+                self.in_map_bounds(point[0], point[1]) and self.can_move_to(point[0], point[1])
             ):
                 print("Point is not in map bounds or can not move to", point)
                 continue
@@ -367,9 +353,7 @@ class MapManager:
 
         for other_point in other_points:
             distance = np.linalg.norm(np.array(point) - np.array(other_point))
-            if distance <= distance_threshold and self.has_clear_path(
-                point, other_point
-            ):
+            if distance <= distance_threshold and self.has_clear_path(point, other_point):
                 return True
 
         return False
@@ -447,9 +431,7 @@ class MapManager:
             cost_map_resolution = map_data.info.resolution
             rospy.loginfo("cost_map resolution: %s" % str(cost_map_resolution))
 
-            self.cost_map = (
-                np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
-            )
+            self.cost_map = np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
 
             # get correct numbers
             self.cost_map[self.cost_map == -1] = 127
@@ -527,9 +509,7 @@ class MapManager:
             Tuple[float, float]: The current robot position (x, y).
         """
         rospy.loginfo("Waiting for amcl_pose...")
-        pose_msg = rospy.wait_for_message(
-            "/amcl_pose", PoseWithCovarianceStamped, timeout=5.0
-        )
+        pose_msg = rospy.wait_for_message("/amcl_pose", PoseWithCovarianceStamped, timeout=5.0)
         rospy.loginfo("Received amcl_pose.")
         robot_position = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
         return robot_position
@@ -542,9 +522,7 @@ class MapManager:
             Tuple[float, float]: The current robot position (x, y).
         """
         rospy.loginfo("Waiting for amcl_pose...")
-        pose_msg = rospy.wait_for_message(
-            "/amcl_pose", PoseWithCovarianceStamped, timeout=5.0
-        )
+        pose_msg = rospy.wait_for_message("/amcl_pose", PoseWithCovarianceStamped, timeout=5.0)
         rospy.loginfo("Received amcl_pose.")
 
         return pose_msg.pose
@@ -562,9 +540,7 @@ class MapManager:
         robot_x, robot_y = self.get_robot_position()
 
         # Sort goals by distance to the robot
-        goals.sort(
-            key=lambda goal: ((goal[0] - robot_x) ** 2 + (goal[1] - robot_y) ** 2)
-        )
+        goals.sort(key=lambda goal: ((goal[0] - robot_x) ** 2 + (goal[1] - robot_y) ** 2))
 
         self.goal_points = goals
         self.publish_markers_of_goals(goals)
@@ -671,9 +647,7 @@ class MapManager:
         # Apply thresholding to identify the optimal corners
         # Decrease the threshold factor to detect more corners (e.g., from 0.32 to 0.2)
         threshold_value = 0.12 * harris_corners_dilated.max()
-        threshold_image = cv2.threshold(
-            harris_corners_dilated, threshold_value, 255, 0
-        )[1]
+        threshold_image = cv2.threshold(harris_corners_dilated, threshold_value, 255, 0)[1]
         threshold_image_uint8 = np.uint8(threshold_image)
 
         # Find connected components and their centroids
@@ -688,9 +662,7 @@ class MapManager:
         )
 
         # Extract the branch point coordinates from the refined corners
-        branch_points = [
-            (int(corner[0]), int(corner[1])) for corner in refined_corners[1:]
-        ]
+        branch_points = [(int(corner[0]), int(corner[1])) for corner in refined_corners[1:]]
         return branch_points
 
     def visualize_branch_points(self) -> None:
@@ -769,9 +741,7 @@ class MapManager:
                 x = backup_candidate[0]
                 y = backup_candidate[1]
 
-                x_close, y_close = self.nearest_nonzero_to_point(
-                    self.accessible_costmap, x, y
-                )
+                x_close, y_close = self.nearest_nonzero_to_point(self.accessible_costmap, x, y)
                 candidates_reachable.append((x_close, y_close))
                 print(candidates_reachable)
 
@@ -896,9 +866,7 @@ class MapManager:
 
         return (x_res, y_res)
 
-    def quaternion_from_points(
-        self, x1: float, y1: float, x2: float, y2: float
-    ) -> Quaternion:
+    def quaternion_from_points(self, x1: float, y1: float, x2: float, y2: float) -> Quaternion:
         """
         Returns quaternion representing rotation so that the
         robot will be pointing prom (x1,y1)to (x2,y2)
@@ -940,9 +908,7 @@ class MapManager:
         """
         (c_x, c_y) = self.world_to_map_coords(x, y)
 
-        x_close, y_close = self.nearest_nonzero_to_point(
-            self.accessible_costmap, c_x, c_y
-        )
+        x_close, y_close = self.nearest_nonzero_to_point(self.accessible_costmap, c_x, c_y)
 
         (x_transformed, y_transformed) = self.map_to_world_coords(x_close, y_close)
         return x_transformed, y_transformed
@@ -964,9 +930,7 @@ class MapManager:
 
         accessible_map_copy = np.copy(self.accessible_costmap)
         kernel = np.ones((3, 3), np.uint8)
-        accessible_map_copy = cv2.erode(
-            accessible_map_copy, kernel, iterations=erosion_iter
-        )
+        accessible_map_copy = cv2.erode(accessible_map_copy, kernel, iterations=erosion_iter)
 
         # save_image(accessible_map_copy, "accessible_map_copy.png")
 
