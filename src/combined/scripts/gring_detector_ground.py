@@ -93,8 +93,10 @@ class RingGroup:
             ring_pose = ring.pose
 
             # Calculate the distance between ring pose and robot pose
-            distance = ((ring_pose.position.x - robot_pose.position.x) ** 2 +
-                        (ring_pose.position.y - robot_pose.position.y) ** 2) ** 0.5
+            distance = (
+                (ring_pose.position.x - robot_pose.position.x) ** 2
+                + (ring_pose.position.y - robot_pose.position.y) ** 2
+            ) ** 0.5
 
             # Invert the distance to assign more weight to closer rings
             weight = 1 / distance
@@ -112,7 +114,6 @@ class RingGroup:
         avg_pose.position.z /= total_weight
 
         self.avg_pose = avg_pose
-
 
     # def update_avg_color(self) -> None:
     #     """
