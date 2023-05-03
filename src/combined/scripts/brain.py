@@ -847,7 +847,9 @@ class Brain:
         while True:
             dist_to_obj = self.get_robot_distance_to_point(x, y)
 
-            rospy.loginfo(f"distance to goal:{dist_to_obj}")
+            rospy.loginfo(
+                f"distance to goal:{dist_to_obj}, laser_wall:{self.laser_manager.distance_to_obstacle}"
+            )
 
             # if dist_to_obj > dist_prev:
             #     break
