@@ -328,7 +328,7 @@ class Brain:
         y_cylinder = cylinder_pose.position.y
 
         cylinder_greet_pose = self.get_object_greet_pose(
-            x_cylinder, y_cylinder, erosion=5
+            x_cylinder, y_cylinder, erosion=7
         )
 
         self.cylinder_coords.append(cylinder_pose)
