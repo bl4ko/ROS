@@ -4,11 +4,9 @@ This script is used for detecting rings in images.
 """
 
 import sys
-from collections import Counter
-from typing import Tuple, List
-import time
-import rospy
 import threading
+from typing import Tuple, List
+import rospy
 import cv2
 import numpy as np
 from tf2_ros import TransformException  # pylint: disable=no-name-in-module
@@ -16,24 +14,21 @@ import tf2_ros
 import message_filters
 from tf2_geometry_msgs import PointStamped
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import Vector3, Pose, Quaternion
+from geometry_msgs.msg import Vector3, Pose, Quaternion, PoseStamped
 from cv_bridge import CvBridge, CvBridgeError
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from combined.msg import UniqueRingCoords, DetectedRings
-from geometry_msgs.msg import PoseStamped
 
 # Tuple of center coordinates (x,y)
 # Tuple of axes lengths (width, height)
 # Float the angle of rotation of the elipse
 Ellipse = Tuple[Tuple[float, float], Tuple[float, float], float]
 
-LAST_PROCESSED_IMAGE_TIME = (
-    0  # Variable for storing the time of the last processed image
-)
+LAST_PROCESSED_IMAGE_TIME = 0  # Variable for storing the time of the last processed image
 
 
-class DetectedRing:
+class DetectedGroundRing:
     """
     Class for holding information about detected rings.
     """
@@ -41,37 +36,33 @@ class DetectedRing:
     def __init__(
         self,
         pose: Pose,
-        color: ColorRGBA,
         robot_pose: PoseStamped = None,
     ):
         """
         Args:
             pose (Pose): Pose of the ring
-            color (ColorRGBA): Color of the ring
+            robot_pose (PoseStamped): Pose of the robot
         """
         self.pose: Pose = pose
-        self.color: ColorRGBA = color
         self.robot_pose: PoseStamped = robot_pose
 
 
-class RingGroup:
+class GroundRingGroup:
     """
     Class to store the information of a group of rings.
     A group of rings is a group of rings that are close to each other
     and are on the same plane (they represent the same ring in real world).
     """
 
-    def __init__(self, initial_ring: DetectedRing, group_id: int) -> None:
+    def __init__(self, initial_ring: DetectedGroundRing, group_id: int) -> None:
         self.group_id: int = group_id
-        self.rings: List[DetectedRing] = [initial_ring]
+        self.rings: List[DetectedGroundRing] = [initial_ring]
         self.detections: int = 1
-        self.color: ColorRGBA = initial_ring.color
         self.avg_pose: Pose = initial_ring.pose
 
     def __str__(self) -> str:
         return (
-            f"Ring group [{self.group_id}]: detections={self.detections}, color=(r={self.color.r},"
-            # f" g={self.color.g}, b={self.color.b}), pos=(x={self.avg_pose.position.x},"
+            f"Ring group [{self.group_id}]: detections={self.detections}"
             f" y={self.avg_pose.position.y}, z={self.avg_pose.position.z})"
         )
 
@@ -115,20 +106,7 @@ class RingGroup:
 
         self.avg_pose = avg_pose
 
-    # def update_avg_color(self) -> None:
-    #     """
-    #     Updates the average color of the group.
-    #     """
-    #     color_counter = Counter(
-    #         [
-    #             (ring.color.r, ring.color.g, ring.color.b, ring.color.a)
-    #             for ring in self.rings
-    #         ]
-    #     )
-    #     most_common_color = color_counter.most_common(1)[0][0]
-    #     self.color = ColorRGBA(*most_common_color)
-
-    def add_ring(self, ring: DetectedRing) -> None:
+    def add_ring(self, ring: DetectedGroundRing) -> None:
         """
         Adds a ring to the group of rings.
 
@@ -137,29 +115,7 @@ class RingGroup:
         """
         self.rings.append(ring)
         self.update_avg_pose()
-        # self.update_avg_color()
         self.detections += 1
-
-    # def convert_rgba_to_string(self) -> str:
-    #     """
-    #     Converts self.color to a string from rgba object.
-
-    #     Returns:
-    #         str: String representation of the color.
-    #     """
-    #     if self.color.r == 1 and self.color.g == 0 and self.color.b == 0:
-    #         return "red"
-
-    #     if self.color.r == 0 and self.color.g == 1 and self.color.b == 0:
-    #         return "green"
-
-    #     if self.color.r == 0 and self.color.g == 0 and self.color.b == 1:
-    #         return "blue"
-
-    #     if self.color.r == 0 and self.color.g == 0 and self.color.b == 0:
-    #         return "black"
-
-    #     return "unknown"
 
 
 class RingDetector:
@@ -179,16 +135,12 @@ class RingDetector:
         # Subscribe to rgb/depth image, and also synchronize the topics
         image_sub = message_filters.Subscriber("/arm_camera/rgb/image_raw", Image)
         depth_sub = message_filters.Subscriber("/arm_camera/depth/image_raw", Image)
-        time_synchronizer = message_filters.TimeSynchronizer(
-            [image_sub, depth_sub], 100
-        )
+        time_synchronizer = message_filters.TimeSynchronizer([image_sub, depth_sub], 100)
         time_synchronizer.registerCallback(self.image_callback)
         self.image_lock = threading.Lock()
 
         # Publiser for the visualization markers
-        self.markers_pub = rospy.Publisher(
-            "ground_ring_markers", MarkerArray, queue_size=1000
-        )
+        self.markers_pub = rospy.Publisher("ground_ring_markers", MarkerArray, queue_size=1000)
 
         # Object we use for transforming between coordinate frames
         self.tf_buf = tf2_ros.Buffer()
@@ -203,7 +155,7 @@ class RingDetector:
         # Max depth difference for the ring to be considered valid
         self.depth_difference_threshold: float = 0.1
 
-        self.ring_groups: List[RingGroup] = []
+        self.ring_groups: List[GroundRingGroup] = []
 
         self.min_num_of_detections: int = 3
 
@@ -255,8 +207,7 @@ class RingDetector:
         angle_range_ratio = (max_angle - min_angle) / 360.0
 
         return (
-            coverage_ratio >= angle_range_ratio * 0.5
-            and coverage_ratio <= angle_range_ratio * 1.5
+            coverage_ratio >= angle_range_ratio * 0.5 and coverage_ratio <= angle_range_ratio * 1.5
         )
 
     def detect_rings(self) -> None:
@@ -329,18 +280,10 @@ class RingDetector:
             )
 
             # Extract contours from the binary image
-            contours, _ = cv2.findContours(
-                thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-            )
+            contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
             # Fit elipses to all extracted contours with enough points
             ellipses = [cv2.fitEllipse(cnt) for cnt in contours if cnt.shape[0] >= 20]
-
-            # save image contours
-            # cv2.imwrite(
-            #     "contours.png",
-            #     rgb_img,
-            # )
 
             # Find pairs of ellipses with centers close to each other
             candidates = [
@@ -385,15 +328,11 @@ class RingDetector:
 
             # Calculate the minimum and maximum x-coordinates of the inner ellipse
             inner_x_min = max(0, int(inner_center[0] - inner_avg_size / 2))
-            inner_x_max = min(
-                rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2)
-            )
+            inner_x_max = min(rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2))
 
             # Calculate the minimum and maximum y-coordinates of the inner ellipse
             inner_y_min = max(0, int(inner_center[1] - inner_avg_size / 2))
-            inner_y_max = min(
-                rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2)
-            )
+            inner_y_max = min(rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2))
 
             # Calculate the average size and center of the second ellipse (outer ellipse)
             outer_avg_size = (outer_ellipse[1][0] + outer_ellipse[1][1]) / 2
@@ -401,15 +340,11 @@ class RingDetector:
 
             # Calculate the minium and maximum x-coordinates of the outer ellipse
             outer_x_min = max(0, int(outer_center[0] - outer_avg_size / 2))
-            outer_x_max = min(
-                rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2)
-            )
+            outer_x_max = min(rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2))
 
             # Calculate the minimum and maximum y-coordinates of the outer ellipse
             outer_y_min = max(0, int(outer_center[1] - outer_avg_size / 2))
-            outer_y_max = min(
-                rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2)
-            )
+            outer_y_max = min(rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2))
 
             # Calculate the center of the candidate ellipse pair
             candidate_center_x = round((inner_x_min + inner_x_max) / 2)
@@ -418,20 +353,14 @@ class RingDetector:
             # Create a squared slice of the center (size center_neigh x center_neigh)
             center_neigh = 4
             center_depth_slice = depth_img[
-                (candidate_center_x - center_neigh) : (
-                    candidate_center_x + center_neigh
-                ),
-                (candidate_center_y - center_neigh) : (
-                    candidate_center_y + center_neigh
-                ),
+                (candidate_center_x - center_neigh) : (candidate_center_x + center_neigh),
+                (candidate_center_y - center_neigh) : (candidate_center_y + center_neigh),
             ]
 
             debug_img = rgb_img.copy()
             cv2.ellipse(debug_img, inner_ellipse, (0, 255, 0), 2)
             cv2.ellipse(debug_img, outer_ellipse, (0, 255, 0), 2)
-            cv2.circle(
-                debug_img, (candidate_center_y, candidate_center_x), 2, (0, 0, 255), 2
-            )
+            cv2.circle(debug_img, (candidate_center_y, candidate_center_x), 2, (0, 0, 255), 2)
 
             # save image
             cv2.imwrite(
@@ -509,9 +438,7 @@ class RingDetector:
                     f" z={ring_pose.position.z})"
                 )
                 ring_img = rgb_img[outer_x_min:outer_x_max, outer_y_min:outer_y_max]
-                self.add_new_ring(
-                    ring_img=ring_img, ring_pose=ring_pose, robot_pose=robot_pose
-                )
+                self.add_new_ring(ring_pose=ring_pose, robot_pose=robot_pose)
                 self.print_ring_groups()
 
     def ellipse2array(
@@ -608,18 +535,14 @@ class RingDetector:
 
         return pose
 
-    def add_new_ring(
-        self, ring_img: np.array, ring_pose: Pose, robot_pose: PoseStamped
-    ) -> None:
+    def add_new_ring(self, ring_pose: Pose, robot_pose: PoseStamped) -> None:
         """
         Add a new ring_img to the list of detected rings.
 
         Args:
             TODO
         """
-        # Get the ring color from ring_img
-        ring_color: ColorRGBA = ColorRGBA(0, 0, 1, 0)
-        new_ring = DetectedRing(pose=ring_pose, color=ring_color, robot_pose=robot_pose)
+        new_ring = DetectedGroundRing(pose=ring_pose, robot_pose=robot_pose)
 
         # For each group compare if avg_group pose is smaller than self.group_max_dsitance
         # from the new ring. In that case that means that the new ring is part of the group
@@ -636,59 +559,9 @@ class RingDetector:
                 return
 
         # # If the ring is not part of any group, create a new group
-        new_ring_group = RingGroup(new_ring, len(self.ring_groups))
+        new_ring_group = GroundRingGroup(new_ring, len(self.ring_groups))
         rospy.loginfo(f"New ring group created: id={str(new_ring_group.group_id)}")
         self.ring_groups.append(new_ring_group)
-
-    # def get_ring_color(self, ring_img: np.array) -> ColorRGBA:
-    #     """
-    #     Returns the color of the ring.
-
-    #     Args:
-    #         ring_img (np.array): Image of the ring
-
-    #     Returns:
-    #         ColorRGBA: Color of the ring
-    #     """
-    #     ring_image_hsv = cv2.cvtColor(ring_img, cv2.COLOR_BGR2HSV)
-
-    #     # Define color boundaries in HSV format
-    #     color_boundaries = {
-    #         "yellow": ([24, 80, 20], [32, 255, 255]),
-    #         "green": ([36, 25, 25], [80, 255, 255]),
-    #         "black": ([0, 0, 0], [180, 255, 50]),
-    #         "blue": ([88, 120, 25], [133, 255, 255]),
-    #         "red": ([0, 100, 20], [10, 255, 255]),
-    #         "red2": ([160, 100, 20], [180, 255, 255]),
-    #     }
-
-    #     color_counts = []
-
-    #     for lower, upper in color_boundaries.values():
-    #         lower = np.array(lower, dtype="uint8")
-    #         upper = np.array(upper, dtype="uint8")
-
-    #         mask = cv2.inRange(ring_image_hsv, lower, upper)
-    #         color_counts.append(np.sum(mask) / 255)
-
-    #     # Merge red and red2 counts
-    #     color_counts[-2] += color_counts[-1]
-    #     color_counts.pop()
-
-    #     color_ratios = [count / sum(color_counts) for count in color_counts]
-    #     max_ratio_index = color_ratios.index(max(color_ratios))
-
-    #     detected_color = list(color_boundaries.keys())[max_ratio_index]
-
-    #     color_rgba_mapping = {
-    #         "yellow": ColorRGBA(r=1, g=1, b=0, a=1),
-    #         "green": ColorRGBA(r=0, g=1, b=0, a=1),
-    #         "black": ColorRGBA(r=0, g=0, b=0, a=1),
-    #         "blue": ColorRGBA(r=0, g=0, b=1, a=1),
-    #         "red": ColorRGBA(r=1, g=0, b=0, a=1),
-    #     }
-
-    #     return color_rgba_mapping[detected_color]
 
     def publish_ring_groups_coords(self) -> None:
         """
@@ -702,7 +575,7 @@ class RingDetector:
                 ring_group_coords = UniqueRingCoords()
                 ring_group_coords.group_id = ring_group.group_id
                 ring_group_coords.ring_pose = ring_group.avg_pose
-                ring_group_coords.color = "black"
+                ring_group_coords.color = "black"  # Dummy color
                 detected_rings_msg.array.append(ring_group_coords)
 
         self.ring_group_publisher.publish(detected_rings_msg)
@@ -765,10 +638,10 @@ def main(log_level=rospy.INFO) -> None:
     This node is used to detect rings in the image.
     """
 
-    rd = RingDetector(log_level=log_level)
+    ring_detector = RingDetector(log_level=log_level)
 
     try:
-        rospy.Timer(rospy.Duration(0.4), lambda _: rd.detect_rings())
+        rospy.Timer(rospy.Duration(0.4), lambda _: ring_detector.detect_rings())
         rospy.spin()
     except KeyboardInterrupt:
         print("Shutting down")
