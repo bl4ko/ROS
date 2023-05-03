@@ -327,7 +327,9 @@ class Brain:
         x_cylinder = cylinder_pose.position.x
         y_cylinder = cylinder_pose.position.y
 
-        cylinder_greet_pose = self.get_object_greet_pose(x_cylinder, y_cylinder)
+        cylinder_greet_pose = self.get_object_greet_pose(
+            x_cylinder, y_cylinder, erosion=5
+        )
 
         self.cylinder_coords.append(cylinder_pose)
         self.cylinder_colors.append(cylinder_color)
@@ -902,10 +904,10 @@ class Brain:
         closest_ring, closest_distance = self.get_closest_ring()
 
         if closest_ring is not None:
-            rospy.loginfo(
-                # f"Closest ring is {closest_ring.group_id} with color {closest_ring.color} found at"
-                f" {closest_distance} meters"
-            )
+            # rospy.loginfo(
+            #     # f"Closest ring is {closest_ring.group_id} with color {closest_ring.color} found at"
+            #     #f" {closest_distance} meters"
+            # )
 
             # if closest ring is within 1 meter adjust camera
 
@@ -914,7 +916,7 @@ class Brain:
             if (
                 self.arm_pose == "extend_ring"
                 and closest_distance < 0.6
-                or distance_to_wall < 0.7
+                and distance_to_wall < 0.7 and distance_to_wall > 0.2
             ):
                 rospy.loginfo("Adjusting arm camera")
                 self.arm_pose = "adjust_ring_close"
@@ -987,10 +989,16 @@ class Brain:
 
                         detected_rings_count = len(self.detected_rings)
 
-                if detected_rings_count >= target_ring_detections:
+                if (
+                    detected_rings_count >= target_ring_detections
+                    and self.all_cylinders_found
+                ):
                     break
 
-            if detected_rings_count < target_ring_detections:
+            if (
+                detected_rings_count < target_ring_detections
+                or not self.all_cylinders_found
+            ):
                 rospy.loginfo(
                     "Not all rings or cylinders have been detected. Will start EXPLORING"
                 )
