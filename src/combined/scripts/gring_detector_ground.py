@@ -11,6 +11,7 @@ import rospy
 import threading
 import cv2
 import numpy as np
+from tf2_ros import TransformException  # pylint: disable=no-name-in-module
 import tf2_ros
 import message_filters
 from tf2_geometry_msgs import PointStamped
@@ -20,6 +21,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from combined.msg import UniqueRingCoords, DetectedRings
+from geometry_msgs.msg import PoseStamped
 
 # Tuple of center coordinates (x,y)
 # Tuple of axes lengths (width, height)
@@ -40,6 +42,7 @@ class DetectedRing:
         self,
         pose: Pose,
         color: ColorRGBA,
+        robot_pose: PoseStamped = None,
     ):
         """
         Args:
@@ -48,6 +51,7 @@ class DetectedRing:
         """
         self.pose: Pose = pose
         self.color: ColorRGBA = color
+        self.robot_pose: PoseStamped = robot_pose
 
 
 class RingGroup:
@@ -73,7 +77,8 @@ class RingGroup:
 
     def update_avg_pose(self) -> None:
         """
-        Updates the average pose of the group of rings.
+        Updates the average pose of the group of rings based on distance between
+        ring pose and robot pose. Closer is better.
         """
         avg_pose = Pose()
         avg_pose.position.x = 0
@@ -81,16 +86,33 @@ class RingGroup:
         avg_pose.position.z = 0
         avg_pose.orientation = Quaternion(0, 0, 0, 1)  # Just to quiet the rviz
 
-        for ring in self.rings:
-            avg_pose.position.x += ring.pose.position.x
-            avg_pose.position.y += ring.pose.position.y
-            avg_pose.position.z += ring.pose.position.z
+        total_weight = 0
 
-        avg_pose.position.x /= len(self.rings)
-        avg_pose.position.y /= len(self.rings)
-        avg_pose.position.z /= len(self.rings)
+        for ring in self.rings:
+            robot_pose = ring.robot_pose.pose
+            ring_pose = ring.pose
+
+            # Calculate the distance between ring pose and robot pose
+            distance = ((ring_pose.position.x - robot_pose.position.x) ** 2 +
+                        (ring_pose.position.y - robot_pose.position.y) ** 2) ** 0.5
+
+            # Invert the distance to assign more weight to closer rings
+            weight = 1 / distance
+
+            total_weight += weight
+
+            # Add the weighted positions
+            avg_pose.position.x += ring_pose.position.x * weight
+            avg_pose.position.y += ring_pose.position.y * weight
+            avg_pose.position.z += ring_pose.position.z * weight
+
+        # Divide by the total weight to get the weighted average
+        avg_pose.position.x /= total_weight
+        avg_pose.position.y /= total_weight
+        avg_pose.position.z /= total_weight
 
         self.avg_pose = avg_pose
+
 
     # def update_avg_color(self) -> None:
     #     """
@@ -259,6 +281,35 @@ class RingDetector:
             except CvBridgeError as err:
                 print(err)
 
+            depth_timestamp = self.depth_image_message.header.stamp
+
+            try:
+                base_position_transform = self.tf_buf.lookup_transform(
+                    "map", "base_link", depth_timestamp
+                )
+                robot_x = base_position_transform.transform.translation.x
+                robot_y = base_position_transform.transform.translation.y
+                robot_z = base_position_transform.transform.translation.z
+                robot_rotation_x = base_position_transform.transform.rotation.x
+                robot_rotation_y = base_position_transform.transform.rotation.y
+                robot_rotation_z = base_position_transform.transform.rotation.z
+                robot_rotation_w = base_position_transform.transform.rotation.w
+
+                robot_pose = PoseStamped()
+                robot_pose.header.frame_id = "map"
+                robot_pose.header.stamp = depth_timestamp
+                robot_pose.pose.position.x = robot_x
+                robot_pose.pose.position.y = robot_y
+                robot_pose.pose.position.z = robot_z
+                robot_pose.pose.orientation.x = robot_rotation_x
+                robot_pose.pose.orientation.y = robot_rotation_y
+                robot_pose.pose.orientation.z = robot_rotation_z
+                robot_pose.pose.orientation.w = robot_rotation_w
+
+            except TransformException as error:
+                rospy.logerr(f"Error in base coords lookup: {error}")
+                return
+
             # Get the time stamp of the depth image
             depth_img_time = self.depth_image_message.header.stamp
 
@@ -302,7 +353,7 @@ class RingDetector:
 
             if len(candidates) > 0:
                 self.process_candidates_and_update_ring_groups(
-                    candidates, rgb_img, depth_img, depth_img_time
+                    candidates, rgb_img, depth_img, depth_img_time, robot_pose
                 )
 
             self.publish_ring_groups()
@@ -314,6 +365,7 @@ class RingDetector:
         rgb_img: np.ndarray,
         depth_img: np.ndarray,
         depth_img_time: rospy.Time,
+        robot_pose: PoseStamped,
     ) -> None:
         """
         Process the candidates, extract their depth and position, and update the ring groups.
@@ -386,7 +438,7 @@ class RingDetector:
                 debug_img,
             )
 
-            #self.debug_image_with_mouse(debug_img)
+            # self.debug_image_with_mouse(debug_img)
             # Convert nan to 0 in center_depth_slice
             center_depth_slice = np.nan_to_num(center_depth_slice)
 
@@ -456,7 +508,9 @@ class RingDetector:
                     f" z={ring_pose.position.z})"
                 )
                 ring_img = rgb_img[outer_x_min:outer_x_max, outer_y_min:outer_y_max]
-                self.add_new_ring(ring_img=ring_img, ring_pose=ring_pose)
+                self.add_new_ring(
+                    ring_img=ring_img, ring_pose=ring_pose, robot_pose=robot_pose
+                )
                 self.print_ring_groups()
 
     def ellipse2array(
@@ -553,7 +607,9 @@ class RingDetector:
 
         return pose
 
-    def add_new_ring(self, ring_img: np.array, ring_pose: Pose) -> None:
+    def add_new_ring(
+        self, ring_img: np.array, ring_pose: Pose, robot_pose: PoseStamped
+    ) -> None:
         """
         Add a new ring_img to the list of detected rings.
 
@@ -562,7 +618,7 @@ class RingDetector:
         """
         # Get the ring color from ring_img
         ring_color: ColorRGBA = ColorRGBA(0, 0, 1, 0)
-        new_ring = DetectedRing(pose=ring_pose, color=ring_color)
+        new_ring = DetectedRing(pose=ring_pose, color=ring_color, robot_pose=robot_pose)
 
         # For each group compare if avg_group pose is smaller than self.group_max_dsitance
         # from the new ring. In that case that means that the new ring is part of the group
