@@ -974,7 +974,7 @@ class MapManager:
         # keep only non-zero values
         debugimg[accessible_map_copy > 0] = 255
 
-        cv2.imwrite("acemap_debug.png", debugimg)
+        # cv2.imwrite("acemap_debug.png", debugimg)
 
         x_close, y_close = self.nearest_nonzero_to_point(accessible_map_copy, c_x, c_y)
 

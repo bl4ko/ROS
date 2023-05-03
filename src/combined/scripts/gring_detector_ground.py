@@ -170,6 +170,9 @@ class RingDetector:
         self.rgb_image_message: Image = None
         self.depth_image_message: Image = None
 
+        # Threshold for the minimum size of the ellipse
+        self.min_size_threshold: float = 40
+
     def image_callback(self, rgb_image_msg: Image, depth_image_msg: Image):
         """
         Callback for when a new image is received.
@@ -182,7 +185,7 @@ class RingDetector:
             self.rgb_image_message = rgb_image_msg
             self.depth_image_message = depth_image_msg
 
-    def is_partial_circle(contour, min_angle, max_angle, img, thresh):
+    def is_partial_circle(self, contour, min_angle, max_angle, img, thresh):
         """
         Function to check if a contour represents a partial circle.
         min_angle and max_angle are in degrees.
@@ -326,6 +329,10 @@ class RingDetector:
             inner_avg_size = (inner_ellipse[1][0] + inner_ellipse[1][1]) / 2
             inner_center = (inner_ellipse[0][1], inner_ellipse[0][0])
 
+            if inner_avg_size < self.min_size_threshold:
+                rospy.logdebug("Candidate not valid, inner ellipse too small")
+                continue
+
             # Calculate the minimum and maximum x-coordinates of the inner ellipse
             inner_x_min = max(0, int(inner_center[0] - inner_avg_size / 2))
             inner_x_max = min(rgb_img.shape[0], int(inner_center[0] + inner_avg_size / 2))
@@ -337,14 +344,6 @@ class RingDetector:
             # Calculate the average size and center of the second ellipse (outer ellipse)
             outer_avg_size = (outer_ellipse[1][0] + outer_ellipse[1][1]) / 2
             outer_center = (inner_ellipse[0][1], inner_ellipse[0][0])
-
-            # Calculate the minium and maximum x-coordinates of the outer ellipse
-            outer_x_min = max(0, int(outer_center[0] - outer_avg_size / 2))
-            outer_x_max = min(rgb_img.shape[0], int(outer_center[0] + outer_avg_size / 2))
-
-            # Calculate the minimum and maximum y-coordinates of the outer ellipse
-            outer_y_min = max(0, int(outer_center[1] - outer_avg_size / 2))
-            outer_y_max = min(rgb_img.shape[1], int(outer_center[1] + outer_avg_size / 2))
 
             # Calculate the center of the candidate ellipse pair
             candidate_center_x = round((inner_x_min + inner_x_max) / 2)
@@ -362,21 +361,9 @@ class RingDetector:
             cv2.ellipse(debug_img, outer_ellipse, (0, 255, 0), 2)
             cv2.circle(debug_img, (candidate_center_y, candidate_center_x), 2, (0, 0, 255), 2)
 
-            # save image
-            cv2.imwrite(
-                "debug_img.png",
-                debug_img,
-            )
-
             # self.debug_image_with_mouse(debug_img)
             # Convert nan to 0 in center_depth_slice
             center_depth_slice = np.nan_to_num(center_depth_slice)
-
-            # if np.mean(center_depth_slice) > 0.1:
-            #     rospy.logdebug(
-            #         "Not a valid ring, because inside values are not far away."
-            #     )
-            #     continue
 
             # Create a mask using both ellipses
             ring_mask = self.ellipse2array(
@@ -394,38 +381,6 @@ class RingDetector:
                 rospy.logdebug("Candidate not valid, because too far away")
                 continue
 
-            # If there are no valid depth values in the center slice, skip to the next candidate
-            # if len(center_depth_slice) <= 0:
-            #     rospy.logdebug("No valid depth values in center slice")
-            #     continue
-
-            # Calculate the mean depth value at the center of the candidate ellipse pair
-            # mean_center_depth = (
-            #     np.NaN
-            #     if np.all(center_depth_slice != center_depth_slice)
-            #     else np.nanmean(center_depth_slice)
-            # )
-
-            # Print debugging information
-            # rospy.logdebug(f"Mean center depth: {str(mean_center_depth)}")
-
-            # Set a depth difference threshold to consider an object as having a hole in the middle
-            # depth_difference_threshold = 0.1
-            # depth_difference = abs(median_ring_depth - mean_center_depth)
-
-            # Print debugging information
-            # rospy.logdebug(f"Depth difference: {str(depth_difference)}")
-
-            # Check if the depth difference is NaN
-            # if math.isnan(depth_difference):
-            #     rospy.logdebug("Candidate not valid, because depth difference is NaN")
-            #     continue
-
-            # if there is no hole in the middle -> candidate is not valid
-            # if depth_difference < depth_difference_threshold:
-            #     rospy.logdebug("Candidate not valid, because no hole in the middle")
-            #     continue
-
             # From here on we have a valid detection -> true ring
             ring_pose = self.get_pose(
                 ellipse=inner_ellipse, dist=median_ring_depth, stamp=depth_img_time
@@ -437,7 +392,6 @@ class RingDetector:
                     f"Pose: (x={ring_pose.position.x}, y={ring_pose.position.y},"
                     f" z={ring_pose.position.z})"
                 )
-                ring_img = rgb_img[outer_x_min:outer_x_max, outer_y_min:outer_y_max]
                 self.add_new_ring(ring_pose=ring_pose, robot_pose=robot_pose)
                 self.print_ring_groups()
 
@@ -491,13 +445,13 @@ class RingDetector:
         angle_to_target = np.arctan2(ellipse_x, k_f)
 
         # Debugging print statements
-        print("dist: ", dist)
-        print("ellipse_x: ", ellipse_x)
-        print("angle_to_target: ", angle_to_target)
+        rospy.logdebug("dist: ", dist)
+        rospy.logdebug("ellipse_x: ", ellipse_x)
+        rospy.logdebug("angle_to_target: ", angle_to_target)
 
         # Get the angles in the base_link relative coordinate system
         x, y = dist * np.cos(angle_to_target), dist * np.sin(angle_to_target)
-        print("x, y: ", x, y)
+        rospy.logdebug("x, y: ", x, y)
 
         # Define a stamped message for transformation - in the "camera rgb frame"
         point_s = PointStamped()
@@ -506,7 +460,6 @@ class RingDetector:
         point_s.point.z = x
         point_s.header.frame_id = "arm_camera_rgb_optical_frame"
         point_s.header.stamp = stamp
-        # print("point_s: ", point_s)
 
         try:
             # Get the point in the "map" coordinate system
