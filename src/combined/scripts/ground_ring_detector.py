@@ -313,10 +313,6 @@ class RingDetector:
             inner_y_min = max(0, int(inner_center[1] - inner_avg_size / 2))
             inner_y_max = min(rgb_img.shape[1], int(inner_center[1] + inner_avg_size / 2))
 
-            # Calculate the average size and center of the second ellipse (outer ellipse)
-            outer_avg_size = (outer_ellipse[1][0] + outer_ellipse[1][1]) / 2
-            outer_center = (inner_ellipse[0][1], inner_ellipse[0][0])
-
             # Calculate the center of the candidate ellipse pair
             candidate_center_x = round((inner_x_min + inner_x_max) / 2)
             candidate_center_y = round((inner_y_min + inner_y_max) / 2)
