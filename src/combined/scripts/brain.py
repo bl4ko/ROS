@@ -549,9 +549,10 @@ class Brain:
             if rospy.is_shutdown():
                 return
 
-            rospy.loginfo(f"Cylinder queue: %{str(self.cylinder_colors)}")
+            rospy.loginfo(f"Cylinder queue: {str(self.cylinder_colors)}")
             current_cylinder_color = self.cylinder_colors.pop(0)
             current_greet_pose = self.cylinder_greet_poses.pop(0)
+            self.cylinder_coords.pop(0)
             self.greet_cylinder(current_cylinder_color, current_greet_pose)
 
     def greet_cylinder(self, color, current_greet_pose):
@@ -790,11 +791,10 @@ class Brain:
 
         return travelled_distance
 
-    def auto_adjust_arm_camera(self) -> None:
+    def auto_adjust_arm_camera(self, _: rospy.Timer) -> None:
         """
         auto adjust arm camera
         """
-
         closest_ring, closest_distance = self.get_closest_ring()
 
         if closest_ring is not None:
