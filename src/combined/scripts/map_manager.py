@@ -1,4 +1,11 @@
 #!/usr/bin/python3
+"""
+Module for managing the map data.
+"""
+
+# TODO: pylint fix: pylint: disable=fixme
+# pylint: disable=too-many-lines, disable=too-many-instance-attributes, disable=too-many-locals, disable=too-many-arguments, disable=too-many-locals, disable=too-many-arguments, disable=too-many-public-methods
+
 import threading
 import math
 from typing import Tuple, List
@@ -20,12 +27,19 @@ from geometry_msgs.msg import (
     Pose,
 )
 from visualization_msgs.msg import Marker, MarkerArray
-from tf import transformations as t
 from bresenham import bresenham  # pylint: disable=import-error
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 import tf2_ros
-from tf.transformations import quaternion_from_euler
+from tf.transformations import (
+    quaternion_from_euler,
+    quaternion_matrix,
+    translation_matrix,
+    inverse_matrix,
+    translation_from_matrix,
+    quaternion_from_matrix,
+    concatenate_matrices,
+)
 
 
 # This script retrieves the map from the map_server and saves it in a 2D array.
@@ -97,12 +111,12 @@ class MapManager:
             self.size_x = map_data.info.width
             self.size_y = map_data.info.height
 
-            rospy.loginfo("Map size: x: %s, y: %s." % (str(self.size_x), str(self.size_y)))
+            rospy.loginfo(f"Map size: x: {str(self.size_x)}, y: {str(self.size_y)}.")
 
             if self.size_x < 3 or self.size_y < 3:
                 rospy.loginfo(
-                    "Map size only: x: %s, y: %s. NOT running map to image conversion."
-                    % (str(self.size_x), str(self.size_y))
+                    f"Map size only: x: {str(self.size_x)}, y: {str(self.size_y)}. NOT running map"
+                    " to image conversion."
                 )
                 return
 
@@ -141,17 +155,15 @@ class MapManager:
 
             if self.show_plot:
                 self.visualize(
-                    self.map,
                     self.skeleton_overlay,
                     self.branch_points,
                     self.accessible_costmap,
                 )
 
-            self.init_searched_space(self.accessible_costmap, self.branch_points)
-
+            self.init_searched_space()
             self.init_goals()
 
-    def init_searched_space(self, accessible_costmap, branch_points):
+    def init_searched_space(self):
         """
         Initialize the searched space to be the size of the accessible costmap
         and set all points that are not accessible to -1.
@@ -159,18 +171,17 @@ class MapManager:
         255 = searched
         0 = not accessible
         """
-
         # initialize searched space
         self.searched_space = np.zeros((self.size_y, self.size_x))
 
         # set all points that are not accessible to -1
-        for y in range(self.size_y):
-            for x in range(self.size_x):
-                if not self.map[y, x] == 255:  # free space
-                    self.searched_space[y, x] = 0
+        for i in range(self.size_y):
+            for j in range(self.size_x):
+                if not self.map[i, j] == 255:  # free space
+                    self.searched_space[i, j] = 0
 
                 else:
-                    self.searched_space[y, x] = 60
+                    self.searched_space[i, j] = 60
 
     def update_searched_space(self):
         """
@@ -180,19 +191,16 @@ class MapManager:
         try:
             self.tf_buf.can_transform("map", "base_link", rospy.Time(0), rospy.Duration(3.0))
 
-            ### Give me where is the 'base_link' frame relative to the 'map' frame at the latest available time
             coords = self.tf_buf.lookup_transform("map", "base_link", rospy.Time(0))
-            x, y = self.world_to_map_coords(
+            world_x, world_y = self.world_to_map_coords(
                 coords.transform.translation.x, coords.transform.translation.y
             )
-            # print("x,y",x,y)
-            cv2.circle(self.searched_space, (x, y), 10, 255, -1)
-            # cv2.imwrite("searched_space2.png", np.flip(self.searched_space, 0))
+
+            cv2.circle(self.searched_space, (world_x, world_y), 10, 255, -1)
             self.get_get_aditional_goals()
 
-        except Exception as e:
-            # (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException)
-            print(e)
+        except Exception as exception:  # pylint: disable=broad-except
+            rospy.logwarn(exception)
 
     def get_get_aditional_goals(self):
         """
@@ -229,14 +237,15 @@ class MapManager:
                 # centroid center is not in the safe space
                 # check if any of the points in the bounding box are in the safe space
                 # if so add one of those points as a goal
-                # rospy.loginfo("centroid center is not in the safe space searching for a point in the safe space")
-                x, y, w, h = stats[i + 1][0:4]
-                for x in range(x, x + w):
-                    for y in range(y, y + h):
-                        if self.map[y, x] == 255:
+                # rospy.loginfo("centroid center is
+                # not in the safe space searching for a point in the safe space")
+                x_map, y_map, width, height = stats[i + 1][0:4]
+                for x_map in range(x_map, x_map + width):
+                    for y_map in range(y_map, y_map + height):
+                        if self.map[y_map, x_map] == 255:
                             # rospy.loginfo("found a point in the safe space")
-                            additional_goals.append((x, y))
-                            cv2.circle(unsearched_space, (x, y), 1, 60, -1)
+                            additional_goals.append((x_map, y_map))
+                            cv2.circle(unsearched_space, (x_map, y_map), 1, 60, -1)
                             break
                     else:
                         continue
@@ -246,12 +255,22 @@ class MapManager:
         # convert to map coordinates
         toret = []
         for goal in additional_goals:
-            x, y = self.map_to_world_coords(goal[0], goal[1])
-            toret.append((x, y))
+            x_map, y_map = self.map_to_world_coords(goal[0], goal[1])
+            toret.append((x_map, y_map))
 
         return toret
 
-    def distance(self, point1, point2):
+    def distance(self, point1: Tuple[float, float], point2: Tuple[float, float]) -> float:
+        """
+        Calculates the distance between two points.
+
+        Args:
+            point1 (Tuple[float, float]): The first point.
+            point2 (Tuple[float, float]): The second point.
+
+        Returns:
+            float: The distance between the two points.
+        """
         return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
 
     def filter_branch_points(self):
@@ -301,14 +320,10 @@ class MapManager:
         point1 = self.world_to_map_coords(point1[0], point1[1])
         point2 = self.world_to_map_coords(point2[0], point2[1])
 
-        x0, y0 = point1
-        x1, y1 = point2
-
-        points = bresenham(x0, y0, x1, y1)
+        points = bresenham(point1[0], point1[1], point2[0], point2[1])
 
         for point in points:
-            x, y = point
-            pixel_value = self.map[y, x]
+            pixel_value = self.map[point[0], point[1]]
             if pixel_value == 0:
                 return False
 
@@ -323,15 +338,15 @@ class MapManager:
         """
 
         proximity = int(proximity / self.map_resolution)
-        x, y = point
+        point_x, point_y = point
         rows, cols = self.map.shape
 
-        for dx in range(-proximity, proximity + 1):
-            for dy in range(-proximity, proximity + 1):
-                if dx == 0 and dy == 0:
+        for d_x in range(-proximity, proximity + 1):
+            for d_y in range(-proximity, proximity + 1):
+                if d_x == 0 and d_y == 0:
                     continue
 
-                new_x, new_y = x + dx, y + dy
+                new_x, new_y = point_x + d_x, point_y + d_y
 
                 if 0 <= new_x < rows and 0 <= new_y < cols:
                     pixel_value = self.map[new_x, new_y]
@@ -358,7 +373,7 @@ class MapManager:
 
         return False
 
-    def visualize(self, map, skeleton_overlay, branch_points, accessible_costmap):
+    def visualize(self, skeleton_overlay, branch_points, accessible_costmap):
         """
         Visualize the map, skeleton overlay and branch points in rviz.
         """
@@ -419,17 +434,17 @@ class MapManager:
             size_x = map_data.info.width
             size_y = map_data.info.height
 
-            rospy.loginfo("CostMap size: x: %s, y: %s." % (str(size_x), str(size_y)))
+            rospy.loginfo(f"CostMap size: x: {str(size_x)}, y: {str(size_y)}.")
 
             if size_x < 3 or size_y < 3:
                 rospy.loginfo(
-                    "CostMap size only: x: %s, y: %s. NOT running CostMap to image conversion."
-                    % (str(size_x), str(size_y))
+                    f"CostMap size only: x: {str(size_x)}, y: {str(size_y)}. NOT running CostMap to"
+                    " image conversion."
                 )
                 return
 
             cost_map_resolution = map_data.info.resolution
-            rospy.loginfo("cost_map resolution: %s" % str(cost_map_resolution))
+            rospy.loginfo(f"cost_map resolution: {str(cost_map_resolution)}")
 
             self.cost_map = np.array(map_data.data).reshape((size_y, size_x)).astype(np.uint8)
 
@@ -600,24 +615,23 @@ class MapManager:
 
         self.marker_publisher.publish(marker_array)
 
-    def map_to_world_coords(self, x: float, y: float) -> Tuple[float, float]:
+    def map_to_world_coords(self, x_map: float, y_map: float) -> Tuple[float, float]:
         """
         Transform map coordinates to world coordinates.
 
         Args:
-            x (float): The x-coordinate in the map frame.
-            y (float): The y-coordinate in the map frame.
+            x_map (float): The x-coordinate in the map frame.
+            y_map (float): The y-coordinate in the map frame.
 
         Returns:
             Tuple[float, float]: A tuple containing the x and y coordinates in the world frame.
         """
-        pt = PointStamped()
-        pt.point.x = x * self.map_resolution
-        pt.point.y = y * self.map_resolution
-        pt.point.z = 0.0
+        point = PointStamped()
+        point.point.x = x_map * self.map_resolution
+        point.point.y = y_map * self.map_resolution
+        point.point.z = 0.0
 
-        # transform to goal space
-        transformed_pt = tf2_geometry_msgs.do_transform_point(pt, self.map_transform)
+        transformed_pt = tf2_geometry_msgs.do_transform_point(point, self.map_transform)
 
         return (transformed_pt.point.x, transformed_pt.point.y)
 
@@ -671,17 +685,16 @@ class MapManager:
         """
         bp_map = np.zeros(self.map.shape, dtype=np.uint8)
 
-        for i in range(len(self.branch_points)):
-            bp_map[self.branch_points[i][1]][self.branch_points[i][0]] = 255
+        for _, branch_point in enumerate(self.branch_points):
+            bp_map[branch_point[1]][branch_point[0]] = 255
 
-        overlayed_bp = cv2.addWeighted(self.map, 0.5, bp_map, 0.5, 0)
-
+        # overlayed_bp = cv2.addWeighted(self.map, 0.5, bp_map, 0.5, 0)
         # cv2.imshow("overlayed branch points", overlayed_bp)
         # cv2.waitKey(0)
         # cv2.destroyAllWindows()
 
     def get_face_greet_location_candidates_perpendicular(
-        self, x_ce, y_ce, fpose_left, fpose_right, d=30
+        self, x_ce, y_ce, fpose_left, fpose_right, dist=30
     ):
         """
         Get the face greet location candidates perpendicular to the line between the two faces.
@@ -693,97 +706,88 @@ class MapManager:
             x_right = fpose_right.position.x
             y_right = fpose_right.position.y
 
-            # with a vector to avoid problems with lines perpendicular to x axis
+            d_x = x_right - x_left
+            d_y = y_right - y_left
 
-            # current vector
-            dx = x_right - x_left
-            dy = y_right - y_left
+            perp_dx = -d_y / ((d_y * d_y + d_x * d_x) ** 0.5)
+            perp_dy = d_x / ((d_y * d_y + d_x * d_x) ** 0.5)
 
-            # get normalized perpendicular vector
-            perp_dx = -dy / ((dy * dy + dx * dx) ** 0.5)
-            perp_dy = dx / ((dy * dy + dx * dx) ** 0.5)
-
-            # x_start = round(- perp_dx * d + x_ce)
-            # y_start = round(- perp_dy * d + y_ce)
-            # x_finish = round(perp_dx * d + x_ce)
-            # y_finish = round(perp_dy * d + y_ce)
             x_start = x_ce
             y_start = y_ce
-            x_finish = round(-perp_dx * d + x_ce)
-            y_finish = round(-perp_dy * d + y_ce)
+            x_finish = round(-perp_dx * dist + x_ce)
+            y_finish = round(-perp_dy * dist + y_ce)
 
-            # candidates = list(bresenham(x_ce, y_ce, cnd_tmp[len(cnd_tmp)-1][0], cnd_tmp[len(cnd_tmp)-1][1]))
             candidates = list(bresenham(x_start, y_start, x_finish, y_finish))
-            # print("Candidates for:")
-            # print(candidates)
-
-            # candidates.reverse()
-
-            # return candidates
-
-            # go through candidates and check if they can be moved to
             candidates_reachable = []
             for candidate in candidates:
-                c = candidate[0]
-                r = candidate[1]
-                if self.in_map_bounds(c, r) and self.can_move_to(c, r):
+                col = candidate[0]
+                row = candidate[1]
+                if self.in_map_bounds(col, row) and self.can_move_to(col, row):
                     candidates_reachable.append(candidate)
-                    # if using central as start
                     break
 
-            # print("Candidates reachable:")
-            # print(candidates_reachable)
-
             if len(candidates_reachable) == 0:
-                # in case no candidates are on valid positions
-                print("Searching for backup candidates")
+                rospy.loginfo("Searching for backup candidates")
                 backup_candidate = candidates[3]
-                x = backup_candidate[0]
-                y = backup_candidate[1]
-
-                x_close, y_close = self.nearest_nonzero_to_point(self.accessible_costmap, x, y)
+                x_close, y_close = self.nearest_nonzero_to_point(
+                    self.accessible_costmap, backup_candidate[0], backup_candidate[1]
+                )
                 candidates_reachable.append((x_close, y_close))
-                print(candidates_reachable)
+                rospy.loginfo(candidates_reachable)
 
             return candidates_reachable
 
-    def can_move_to(self, x, y):
-        cost = self.map_coord_cost(x, y)
+    def can_move_to(self, x_coord, y_coord) -> bool:
+        """
+        Check if the robot can move to a given cell.
+        """
+        cost = self.map_coord_cost(x_coord, y_coord)
 
         if cost == UNKNOWN:
             # Unknown cell
             return False
-        elif cost == INFLATED_OBSTACLE:
+        if cost == INFLATED_OBSTACLE:
             # Not far enough from obstacle
             return False
-        elif cost == LETHAL_OBSTACLE:
+        if cost == LETHAL_OBSTACLE:
             # Lethal obstacle (e.g., wall)
             return False
-        elif cost == FREE_SPACE:
+        if cost == FREE_SPACE:
             # Free space
             return True
-        elif cost > WALL_THRESHOLD:
+        if cost > WALL_THRESHOLD:
             # Wall or close to wall
             return False
-        else:
-            # print("Unknown cost value:", cost)
-            # You can choose to treat unknown values as obstacles or not:
-            return False  # Treat unknown cost values as obstacles
-            # return True  # Treat unknown cost values as free space
 
-    def in_map_bounds(self, x, y):
-        if (x >= 0) and (y >= 0) and (x < self.size_x) and (y < self.size_y):
+        rospy.logwarn(f"Unknown cost value: {cost}")
+        # You can choose to treat unknown values as obstacles or not:
+        return False  # Treat unknown cost values as obstacles
+        # return True  # Treat unknown cost values as free space
+
+    def in_map_bounds(self, x_coord: float, y_coord: float) -> bool:
+        """
+        Check if a given cell is within the map bounds.
+
+        Args:
+            x_coord (float): First coordinate of the cell.
+            y_coord (float): Second coordinate of the cell.
+
+        Returns:
+            bool: True if the cell is within the map bounds, False otherwise.
+        """
+        if (0 <= x_coord < self.size_x) and (0 <= y_coord < self.size_y):
             return True
-        else:
-            return False
+        return False
 
-    def nearest_nonzero_to_point(self, a, x, y):
+    def nearest_nonzero_to_point(
+        self, accessible_costmap: np.ndarray, x_coord: float, y_coord: float
+    ) -> Tuple[int, int]:
         """
         Return indices of nonzero element closest to point (x,y) in array a
         """
-        r, c = np.nonzero(a)
-        min_idx = ((r - y) ** 2 + (c - x) ** 2).argmin()
-        return c[min_idx], r[min_idx]
+        row, col = np.nonzero(accessible_costmap)
+        min_idx = ((row - y_coord) ** 2 + (col - x_coord) ** 2).argmin()
+        return col[min_idx], row[min_idx]
 
     def get_face_greet_location(self, x_c, y_c, x_r, y_r, fpose_left, fpose_right):
         """
@@ -797,26 +801,40 @@ class MapManager:
             x_c, y_c, fpose_left, fpose_right
         )
 
-        min_dist = float("inf")
         res_point = None
 
         res_point = candidates[0]
 
         return self.map_to_world_coords(res_point[0], res_point[1])
 
-    def map_coord_cost(self, x, y):
-        if not self.in_map_bounds(x, y):
-            # wrong data
+    def map_coord_cost(self, x_coord: float, y_coord: float) -> int:
+        """
+        Get the cost of a given cell.
+
+        Args:
+            x_coord (float): x coordinate of the cell.
+            y_coord (float): y coordinate of the cell.
+
+        Returns:
+            int: The cost of the cell.
+        """
+        if not self.in_map_bounds(x_coord, y_coord):
             rospy.logerr("Invalid map coordinates.")
             return None
-        return self.accessible_costmap[y][x]
+        return self.accessible_costmap[y_coord][x_coord]
 
-    def get_inverse_transform(self):
+    def get_inverse_transform(self) -> TransformStamped:
+        """
+        Get the inverse transform of the map transform.
+
+        Returns:
+            TransformedStamped: The inverse transform.
+        """
         # https://answers.ros.org/question/229329/what-is-the-right-way-to-inverse-a-transform-in-python/
         # https://www.programcreek.com/python/example/96799/tf.transformations
         # http://docs.ros.org/en/jade/api/tf/html/python/transformations.html
-        transform_tmp = t.concatenate_matrices(
-            t.translation_matrix(
+        transform_tmp = concatenate_matrices(
+            translation_matrix(
                 np.array(
                     [
                         self.map_transform.transform.translation.x,
@@ -825,7 +843,7 @@ class MapManager:
                     ]
                 )
             ),
-            t.quaternion_matrix(
+            quaternion_matrix(
                 np.array(
                     [
                         self.map_transform.transform.rotation.x,
@@ -835,9 +853,9 @@ class MapManager:
                 )
             ),
         )
-        inverse_transform = t.inverse_matrix(transform_tmp)
-        translation = t.translation_from_matrix(inverse_transform)
-        rotation = t.quaternion_from_matrix(inverse_transform)
+        inverse_transform = inverse_matrix(transform_tmp)
+        translation = translation_from_matrix(inverse_transform)
+        rotation = quaternion_from_matrix(inverse_transform)
 
         res = TransformStamped()
         res.transform.translation.x = translation[0]
@@ -849,24 +867,32 @@ class MapManager:
         res.transform.rotation.w = rotation[3]
         return res
 
-    def world_to_map_coords(self, x, y):
+    def world_to_map_coords(self, x_world: float, y_world: float) -> Tuple[int, int]:
+        """
+        Convert world coordinates to map coordinates.
+
+        Args:
+            x_world (float): world x coordinate
+            y_world (float): world y coordinate
+
+        Returns:
+            Tuple[int, int]: map coordinate pair (x, y)
+        """
         inverse_transform = self.get_inverse_transform()
 
-        # rospy.loginfo("Inverse transform: %s" % str(inverse_transform))
+        point = PointStamped()
+        point.point.x = x_world
+        point.point.y = y_world
+        point.point.z = 0.0
 
-        pt = PointStamped()
-        pt.point.x = x
-        pt.point.y = y
-        pt.point.z = 0.0
-
-        transformed_pt = tf2_geometry_msgs.do_transform_point(pt, inverse_transform)
+        transformed_pt = tf2_geometry_msgs.do_transform_point(point, inverse_transform)
 
         x_res = round(transformed_pt.point.x / self.map_resolution)
         y_res = round(transformed_pt.point.y / self.map_resolution)
 
         return (x_res, y_res)
 
-    def quaternion_from_points(self, x1: float, y1: float, x2: float, y2: float) -> Quaternion:
+    def quaternion_from_points(self, x_1: float, y_1: float, x_2: float, y_2: float) -> Quaternion:
         """
         Returns quaternion representing rotation so that the
         robot will be pointing prom (x1,y1)to (x2,y2)
@@ -880,22 +906,18 @@ class MapManager:
         Returns:
             Quaternion: quaternion representing rotation
         """
-        v1 = np.array([x2, y2, 0]) - np.array([x1, y1, 0])
-        # in the direction of z axis
-        v0 = [1, 0, 0]
+        vector_to_second_point = np.array([x_2, y_2, 0]) - np.array([x_1, y_1, 0])
+        base_vector = [1, 0, 0]
 
-        # compute yaw - rotation around z axis
-        yaw = np.arctan2(v1[1], v1[0]) - np.arctan2(v0[1], v0[0])
+        yaw = np.arctan2(vector_to_second_point[1], vector_to_second_point[0]) - np.arctan2(
+            base_vector[1], base_vector[0]
+        )
 
-        # rospy.loginfo("Yaw: %s" % str(yaw * 57.2957795))
+        quaternion = quaternion_from_euler(0, 0, yaw)
 
-        q = quaternion_from_euler(0, 0, yaw)
+        return quaternion
 
-        # rospy.loginfo("Got quaternion: %s" % str(q))
-
-        return q
-
-    def get_nearest_accessible_point(self, x: float, y: float) -> Tuple[float, float]:
+    def get_nearest_accessible_point(self, point_x: float, point_y: float) -> Tuple[float, float]:
         """
         Returns the indices of the accessible point closest to the point (x, y) in the costmap.
 
@@ -906,7 +928,7 @@ class MapManager:
         Returns:
             Tuple[float, float]: The indices of the accessible point closest to the input point.
         """
-        (c_x, c_y) = self.world_to_map_coords(x, y)
+        (c_x, c_y) = self.world_to_map_coords(point_x, point_y)
 
         x_close, y_close = self.nearest_nonzero_to_point(self.accessible_costmap, c_x, c_y)
 
@@ -914,10 +936,11 @@ class MapManager:
         return x_transformed, y_transformed
 
     def get_nearest_accessible_point_with_erosion(
-        self, x: float, y: float, erosion_iter: int
+        self, x_coord: float, y_coord: float, erosion_iter: int
     ) -> Tuple[float, float]:
         """
-        Returns the indices of the accessible point closest to the point (x, y) in the costmap. with erosion
+        Returns the indices of the accessible point closest to the point (x, y) in the costmap.
+        with erosion
 
         Args:
             x (float): X-coordinate of the point.
@@ -926,7 +949,7 @@ class MapManager:
         Returns:
             Tuple[float, float]: The indices of the accessible point closest to the input point.
         """
-        (c_x, c_y) = self.world_to_map_coords(x, y)
+        (c_x, c_y) = self.world_to_map_coords(x_coord, y_coord)
 
         accessible_map_copy = np.copy(self.accessible_costmap)
         kernel = np.ones((3, 3), np.uint8)
@@ -950,10 +973,7 @@ class MapManager:
         Returns pose with proper greet location and orientation
         for ring / cylinder at x_obj, y_obj.
         """
-        # compute position
         x_greet, y_greet = self.get_nearest_accessible_point(x_obj, y_obj)
-
-        # compute orientation from greet point to object point
         q_dest = self.quaternion_from_points(x_greet, y_greet, x_obj, y_obj)
 
         # create pose for greet
@@ -961,16 +981,13 @@ class MapManager:
         pose.position.x = x_greet
         pose.position.y = y_greet
         pose.position.z = 0
-
-        # so that there are no warnings
         pose.orientation.x = q_dest[0]
         pose.orientation.y = q_dest[1]
         pose.orientation.z = q_dest[2]
         pose.orientation.w = q_dest[3]
-
         return pose
 
-    def euclidean_distance(self, x1: float, y1: float, x2: float, y2: float) -> float:
+    def euclidean_distance(self, x_1: float, y_1: float, x_2: float, y_2: float) -> float:
         """
         Returns euclidean distance between two points.
 
@@ -983,19 +1000,22 @@ class MapManager:
         Returns:
             float: euclidean distance between two points
         """
-        return np.linalg.norm(np.array([x1, y1]) - np.array([x2, y2]))
+        return np.linalg.norm(np.array([x_1, y_1]) - np.array([x_2, y_2]))
 
 
 def test():
+    """
+    Test function for MapManager class.
+    """
     rospy.init_node("path_setter", anonymous=True)
-    ps = MapManager()
+    map_manager = MapManager()
 
     rate = rospy.Rate(1)  # 1 Hz
     while not rospy.is_shutdown():
-        if ps.is_ready():
-            goals = ps.get_goals()
+        if map_manager.is_ready():
+            goals = map_manager.get_goals()
             if goals is not None and len(goals) > 0:
-                ps.publish_markers_of_goals(goals)
+                map_manager.publish_markers_of_goals(goals)
             rate.sleep()
 
 
