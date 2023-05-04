@@ -32,4 +32,4 @@ jobs:
 
     - name: Lint with pylint
       run: |
-        pylint --rcfile=.pylintrc ./src/combined/scripts
+        pylint --rcfile=.pylintrc ./src/combined/scripts/*.py
