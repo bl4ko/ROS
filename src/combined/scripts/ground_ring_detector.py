@@ -538,26 +538,6 @@ class RingDetector:
         for ring_group in self.ring_groups:
             print(f"   {ring_group}")
 
-    def debug_image_with_mouse(self, img: np.ndarray) -> None:
-        """
-        Helper function that displays an image and prints the pixel value at the mouse position.
-
-        Args:
-            img (np.ndarray): Image to be displayed.
-        """
-        cv2.namedWindow("img")
-
-        def mouse_event(event, mouse_x: float, mouse_y: float, param):
-            if event == cv2.EVENT_MOUSEMOVE:
-                # print the pixel value at the x, y coordinate of the image
-                print(param[mouse_y, mouse_x])
-
-        # Set the mouse callback function to the window
-        cv2.setMouseCallback("img", mouse_event, param=img)
-        rospy.logdebug(f"Image: {str(img)}")
-        cv2.imshow("img", img)
-        cv2.waitKey(0)
-
 
 def main(log_level=rospy.INFO) -> None:
     """
