@@ -301,17 +301,15 @@ class Brain:
         q_dest = self.map_manager.quaternion_from_points(x_greet, y_greet, x_obj, y_obj)
 
         # create pose for greet
+        # pylint: disable=R0801
         pose = Pose()
         pose.position.x = x_greet
         pose.position.y = y_greet
         pose.position.z = 0
-
-        # so that there are no warnings
         pose.orientation.x = q_dest[0]
         pose.orientation.y = q_dest[1]
         pose.orientation.z = q_dest[2]
         pose.orientation.w = q_dest[3]
-
         return pose
 
     def detected_cylinder_callback(self, data):

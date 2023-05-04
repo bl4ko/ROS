@@ -379,6 +379,7 @@ class FaceLocalizer:
         point_s.point.z = x_coord
         point_s.header.frame_id = "camera_rgb_optical_frame"
         point_s.header.stamp = time_stamp
+        # pylint: disable=R0801 # Similar with ground_ring_detector
         try:
             point_world = self.tf_buf.transform(point_s, "map")
             pose = Pose()
@@ -435,6 +436,7 @@ class FaceLocalizer:
                         print("Distance to face", face_distance)
                         depth_timestamp = self.latest_depth_image_msg.header.stamp
 
+                        # pylint: disable=R0801 # (same with ground_ring_detector)
                         try:
                             base_position_transform = self.tf_buf.lookup_transform(
                                 "map", "base_link", depth_timestamp

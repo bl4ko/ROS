@@ -4,7 +4,7 @@ This script is used for detecting rings in images.
 """
 
 # TODO: pylint: disable=fixme
-# pylint: disable=too-many-instance-attributes, disable=too-many-locals, disable=W0644
+# pylint: disable=too-many-instance-attributes, disable=too-many-locals, disable=W0644, disable=R0801
 
 import sys
 from collections import Counter
@@ -329,38 +329,6 @@ class RingDetector:
             if median_ring_depth > self.max_distance:
                 rospy.logdebug("Candidate not valid, because too far away")
                 continue
-
-            # If there are no valid depth values in the center slice, skip to the next candidate
-            # if len(center_depth_slice) <= 0:
-            #     rospy.logdebug("No valid depth values in center slice")
-            #     continue
-
-            # Calculate the mean depth value at the center of the candidate ellipse pair
-            # mean_center_depth = (
-            #     np.NaN
-            #     if np.all(center_depth_slice != center_depth_slice)
-            #     else np.nanmean(center_depth_slice)
-            # )
-
-            # Print debugging information
-            # rospy.logdebug(f"Mean center depth: {str(mean_center_depth)}")
-
-            # Set a depth difference threshold to consider an object as having a hole in the middle
-            # depth_difference_threshold = 0.1
-            # depth_difference = abs(median_ring_depth - mean_center_depth)
-
-            # Print debugging information
-            # rospy.logdebug(f"Depth difference: {str(depth_difference)}")
-
-            # Check if the depth difference is NaN
-            # if math.isnan(depth_difference):
-            #     rospy.logdebug("Candidate not valid, because depth difference is NaN")
-            #     continue
-
-            # if there is no hole in the middle -> candidate is not valid
-            # if depth_difference < depth_difference_threshold:
-            #     rospy.logdebug("Candidate not valid, because no hole in the middle")
-            #     continue
 
             # From here on we have a valid detection -> true ring
             ring_pose = self.get_pose(
