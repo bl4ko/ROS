@@ -23,7 +23,7 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Twist, Pose
 from tf.transformations import quaternion_from_euler
 from visualization_msgs.msg import Marker
-from move_arm import Arm_Mover
+from move_arm import ArmMover
 from laser_manager import LaserManager
 from nav_msgs.msg import Odometry
 from combined.msg import DetectedFaces, DetectedRings, CylinderGreetInstructions, UniqueRingCoords
@@ -113,7 +113,7 @@ class Brain:
         self.current_goal_marker_id = 0
 
         # for moving arm
-        self.arm_mover = Arm_Mover()
+        self.arm_mover = ArmMover()
         rospy.sleep(1)
         self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
 
