@@ -1,5 +1,8 @@
 #!/usr/bin/python3
 
+# TODO: fix pylint errors for modularity in this class # pylint: disable=fixme
+# pylint: disable=too-many-instance-attributes, too-many-arguments, too-many-locals, too-many-statements, too-many-branches, too-many-public-methods, too-many-lines
+
 """
 Module representing brain of the turlte bot. Currently it moves the turtle bot 
 to all of the keypoints and do a 360 degree rotation at each of them.
@@ -253,9 +256,6 @@ class Brain:
         goal.target_pose.pose.orientation.z = rr_z
         goal.target_pose.pose.orientation.w = rr_w
 
-        # log
-        # rospy.loginfo("Sending goal to move_base: " + str(goal))
-
         marker = Marker()
         marker.header.frame_id = "map"
         marker.header.stamp = rospy.Time.now()
@@ -271,7 +271,6 @@ class Brain:
         marker.color.r = 0.0
         marker.color.g = 1.0
         marker.color.b = 0.0
-        # set the lifetime of the marker
         marker.lifetime = rospy.Duration(20)
 
         self.current_goal_pub.publish(marker)
@@ -791,7 +790,7 @@ class Brain:
 
         return travelled_distance
 
-    def auto_adjust_arm_camera(self):
+    def auto_adjust_arm_camera(self) -> None:
         """
         auto adjust arm camera
         """
@@ -804,8 +803,7 @@ class Brain:
             if (
                 self.arm_pose == "extend_ring"
                 and closest_distance < 0.6
-                and distance_to_wall < 0.7
-                and distance_to_wall > 0.2
+                and (0.2 < distance_to_wall < 0.7)
             ):
                 rospy.loginfo("Adjusting arm camera")
                 self.arm_pose = "adjust_ring_close"
@@ -974,7 +972,7 @@ class Brain:
                 self.velocity_publisher.publish(twist)
 
             # if distance is just right, stop
-            if robot_distance_to_wall < 0.75 and robot_distance_to_wall > 0.7:
+            if 0.7 < robot_distance_to_wall < 0.75:
                 rospy.loginfo("Distance to wall is just right. Will stop")
                 twist = Twist()
                 twist.linear.x = 0.0
