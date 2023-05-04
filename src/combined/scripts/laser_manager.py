@@ -1,25 +1,36 @@
 #!/usr/bin/python3
 
+"""
+Module for managing the laser scan data.
+"""
+
 import rospy
-import time
-from sensor_msgs.msg import PointCloud2 as pc2
 from sensor_msgs.msg import LaserScan
 from laser_geometry import LaserProjection
 
 
 class LaserManager:
+    """
+    Class for managing the laser scan data.
+    """
+
     def __init__(self):
         # distance to closest obstacle
         self.distance_to_obstacle = 100
         self.too_close = False
-
-        self.laserProj = LaserProjection()
+        self.laser_projection = LaserProjection()
         # self.pcPub = rospy.Publisher("/laserPointCloud", pc2, queue_size=1)
-        self.laserSub = rospy.Subscriber("/scan", LaserScan, self.laserCallback)
+        self.laser_subscriber = rospy.Subscriber("/scan", LaserScan, self.laser_callback)
 
         rospy.loginfo("Laser init complete.")
 
-    def laserCallback(self, data):
+    def laser_callback(self, data: LaserScan) -> None:
+        """
+        Callback for laser scan data.
+
+        Args:
+            data (LaserScan): Laser scan data.
+        """
         # cloud_out = self.laserProj.projectLaser(data)
         # self.pcPub.publish(cloud_out)
 
@@ -42,6 +53,12 @@ class LaserManager:
         # print(str(self.too_close))
 
     def is_too_close_to_obstacle(self):
+        """
+        Returns if the robot is too close to an obstacle.
+
+        Returns:
+            bool: True if the robot is too close to an obstacle, False otherwise.
+        """
         return self.too_close
 
 
