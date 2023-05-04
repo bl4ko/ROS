@@ -1,4 +1,8 @@
 #!/usr/bin/python3
+
+# TODO: # pylint: disable=fixme
+# pylint: disable=too-many-instance-attributes, disable=too-many-arguments, disable=too-many-locals. disable=too-few-public-methods
+
 """
 Module for the face localizer node, which uses Google's 
 Mediapipe library to detect faces and publishes their position.
@@ -39,9 +43,9 @@ class DetectedFace:
         confidence,
         pose_left,
         pose_right,
-        xr,
-        yr,
-        xz,
+        robot_x,
+        robot_y,
+        robot_z,
         rr_x,
         rr_y,
         rr_z,
@@ -55,9 +59,9 @@ class DetectedFace:
         self.pose = pose
         self.pose_left = pose_left
         self.pose_right = pose_right
-        self.robot_x = xr
-        self.robot_y = yr
-        self.robot_z = xz
+        self.robot_x = robot_x
+        self.robot_y = robot_y
+        self.robot_z = robot_z
         self.robot_rotation_x = rr_x
         self.robot_rotation_y = rr_y
         self.robot_rotation_z = rr_z
@@ -97,11 +101,11 @@ class FaceGroup:
         x_right = face.pose_right.position.x
         y_right = face.pose_right.position.y
 
-        dx = x_right - x_left
-        dy = y_right - y_left
+        d_x = x_right - x_left
+        d_y = y_right - y_left
 
-        perp_dx = -dy / ((dy * dy + dx * dx) ** 0.5)
-        perp_dy = dx / ((dy * dy + dx * dx) ** 0.5)
+        perp_dx = -d_y / ((d_y * d_y + d_x * d_x) ** 0.5)
+        perp_dy = d_x / ((d_y * d_y + d_x * d_x) ** 0.5)
 
         return (perp_dx, perp_dy)
 
@@ -246,7 +250,7 @@ class DetectedFacesTracker:
                 face_pose_left, face_pose_right = face.pose_left, face.pose_right
                 confidence, face_distance = face.confidence, face.face_distance
 
-                xg, yg = self.map_manager.get_face_greet_location(
+                greet_x, greet_y = self.map_manager.get_face_greet_location(
                     avg_pose.position.x,
                     avg_pose.position.y,
                     robot_x,
@@ -256,12 +260,12 @@ class DetectedFacesTracker:
                 )
 
                 greet_to_face_distance = np.linalg.norm(
-                    np.array([xg, yg]) - np.array([robot_x, robot_y])
+                    np.array([greet_x, greet_y]) - np.array([robot_x, robot_y])
                 )
 
                 # Weight the greet location based on the confidence and the inverse of the distance
                 weight = confidence / face_distance * greet_to_face_distance
-                weighted_greet_locations += np.array([xg, yg]) * weight
+                weighted_greet_locations += np.array([greet_x, greet_y]) * weight
                 total_weight += weight
 
             # Normalize the average face greet location by the total weight
@@ -282,14 +286,22 @@ class DetectedFacesTracker:
         self, normal_x1: float, normal_y1: float, normal_x2: float, normal_y2: float
     ) -> bool:
         """
-        Returns true if detections were on same side of wall and false otherwise
+        Checks if two normals are on the same side.
+
+        Args:
+            normal_x1 (float): First component of the first normal
+            normal_y1 (float): Second component of the first normal
+            normal_x2 (float): First component of the second normal
+            normal_y2 (float): Second component of the second normal
+
+        Returns:
+            bool: True if the normals are on the same side, False otherwise
         """
         dot_prod = normal_x1 * normal_x2 + normal_y1 * normal_y2
 
         if dot_prod < 0:
             return False
-        else:
-            return True
+        return True
 
 
 class FaceLocalizer:
@@ -356,17 +368,18 @@ class FaceLocalizer:
             or None if the transformation failed.
         """
         kinect_focal_length = 554
-        x1, x2, _, _ = bounding_box
-        face_center_x = self.dims[1] / 2 - (x1 + x2) / 2.0
+        x_1, x_2, _, _ = bounding_box
+        face_center_x = self.dims[1] / 2 - (x_1 + x_2) / 2.0
         # face_center_y = self.dims[0] / 2 - (y1 + y2) / 2.0
         angle_to_target = np.arctan2(face_center_x, kinect_focal_length)
-        x, y = dist * np.cos(angle_to_target), dist * np.sin(angle_to_target)
+        x_coord, y_coord = dist * np.cos(angle_to_target), dist * np.sin(angle_to_target)
         point_s = PointStamped()
-        point_s.point.x = -y
+        point_s.point.x = -y_coord
         point_s.point.y = 0
-        point_s.point.z = x
+        point_s.point.z = x_coord
         point_s.header.frame_id = "camera_rgb_optical_frame"
         point_s.header.stamp = time_stamp
+        # pylint: disable=R0801 # Similar with ground_ring_detector
         try:
             point_world = self.tf_buf.transform(point_s, "map")
             pose = Pose()
@@ -393,8 +406,6 @@ class FaceLocalizer:
         Returns:
             bool: True if a real face was detected, False otherwise.
         """
-        is_real_face = False
-
         with mp.solutions.face_detection.FaceDetection(
             model_selection=detection_range, min_detection_confidence=0.7
         ) as face_detection:
@@ -412,19 +423,20 @@ class FaceLocalizer:
 
                         bounding_box = detection.location_data.relative_bounding_box
                         image_height, image_width, _ = rgb_converted_image.shape
-                        x, y, w, h = (
+                        img_x, img_y, width, height = (
                             int(bounding_box.xmin * image_width),
                             int(bounding_box.ymin * image_height),
                             int(bounding_box.width * image_width),
                             int(bounding_box.height * image_height),
                         )
 
-                        x1, y1, x2, y2 = x, y, x + w, y + h
-                        face_region = rgb_image[y1:y2, x1:x2]
-                        face_distance = float(np.nanmean(depth_image[y1:y2, x1:x2]))
+                        x_1, y_1, x_2, y_2 = img_x, img_y, img_x + width, img_y + height
+                        face_region = rgb_image[y_1:y_2, x_1:x_2]
+                        face_distance = float(np.nanmean(depth_image[y_1:y_2, x_1:x_2]))
                         print("Distance to face", face_distance)
                         depth_timestamp = self.latest_depth_image_msg.header.stamp
 
+                        # pylint: disable=R0801 # (same with ground_ring_detector)
                         try:
                             base_position_transform = self.tf_buf.lookup_transform(
                                 "map", "base_link", depth_timestamp
@@ -439,22 +451,24 @@ class FaceLocalizer:
 
                         except TransformException as error:
                             rospy.logerr(f"Error in base coords lookup: {error}")
-                            return
+                            return False
 
-                        face_pose = self.get_pose((x1, x2, y1, y2), face_distance, depth_timestamp)
+                        face_pose = self.get_pose(
+                            (x_1, x_2, y_1, y_2), face_distance, depth_timestamp
+                        )
                         if face_pose is not None:
                             face_distance_left = float(
-                                np.nanmean(depth_image[y1:y2, x1 : (x1 + 1)])
+                                np.nanmean(depth_image[y_1:y_2, x_1 : (x_1 + 1)])
                             )
                             pose_left = self.get_pose(
-                                (x1, x1, y1, y1), face_distance_left, depth_timestamp
+                                (x_1, x_1, y_1, y_1), face_distance_left, depth_timestamp
                             )
 
                             face_distance_right = float(
-                                np.nanmean(depth_image[y1:y2, (x2 - 1) : x2])
+                                np.nanmean(depth_image[y_1:y_2, (x_2 - 1) : x_2])
                             )
                             pose_right = self.get_pose(
-                                (x2, x2, y1, y1),
+                                (x_2, x_2, y_1, y_1),
                                 face_distance_right,
                                 depth_timestamp,
                             )
@@ -489,7 +503,6 @@ class FaceLocalizer:
                                     or math.isnan(pose_right.position.z)
                                 )
                             ):
-                                is_real_face = True
                                 detected_face = DetectedFace(
                                     face_region,
                                     face_distance,
@@ -508,8 +521,9 @@ class FaceLocalizer:
                                     robot_rotation_w,
                                 )
                                 self.detected_faces_tracker.add_face(detected_face)
+                                return True
 
-        return is_real_face
+        return False
 
     def find_faces(self) -> None:
         """
@@ -556,33 +570,38 @@ class FaceLocalizer:
         """
         face_group_data = self.detected_faces_tracker.get_greet_locations()
         coords, face_groups = [], []
-        for i, (coord, group) in enumerate(face_group_data):
+        for _, (coord, group) in enumerate(face_group_data):
             coords.append(coord)
             face_groups.append(group)
 
         detected_faces_msg = DetectedFaces()
 
         # Process face groups and publish markers
-        for i, (coord, face_group) in enumerate(zip(coords, face_groups)):
+        for _, (coord, face_group) in enumerate(zip(coords, face_groups)):
             self.unique_groups = len(face_groups)
 
-            x, y = face_group.avg_pose.position.x, face_group.avg_pose.position.y
-            face_c_x, face_c_y = coord
+            face_group_x, face_group_y = (
+                face_group.avg_pose.position.x,
+                face_group.avg_pose.position.y,
+            )
+            face_center_x, face_center_y = coord
             normal_x, normal_y = face_group.avg_face_normal
 
             # Calculate the quaternion for the face marker
-            quaternion = self.quaternion_for_face_greet(face_c_x, face_c_y, x, y)
+            face_greet_orientation = self.quaternion_for_face_greet(
+                face_center_x, face_center_y, face_group_x, face_group_y
+            )
 
             # Create the message and append to the array
             msg = self.make_unique_face_coords_msg(
                 face_group.group_id,
-                face_c_x,
-                face_c_y,
-                *quaternion,
+                face_center_x,
+                face_center_y,
+                face_greet_orientation,
                 normal_x,
                 normal_y,
-                x,
-                y,
+                face_group_x,
+                face_group_y,
             )
             detected_faces_msg.array.append(msg)
 
@@ -592,22 +611,33 @@ class FaceLocalizer:
         self.show_markers(face_groups)
 
     def quaternion_for_face_greet(
-        self, x1: float, y1: float, x2: float, y2: float
+        self, face_center_x: float, face_center_y: float, face_group_x: float, face_group_y: float
     ) -> Tuple[float, float, float, float]:
-        v1 = np.array([x2, y2, 0]) - np.array([x1, y1, 0])
+        """
+        Calculate the quaternion for the face marker.
+
+        Args:
+            face_center_x (float): X coordinate of the face center
+            face_center_y (float): Y coordinate of the face center
+            face_group_x (float): X coordinate of the face group
+            face_group_y (float): Y coordinate of the face group
+
+        Returns:
+            Tuple[float, float, float, float]: Quaternion for the face marker
+        """
+        vector_face_to_group = np.array([face_group_x, face_group_y, 0]) - np.array(
+            [face_center_x, face_center_y, 0]
+        )
         # in the direction of z axis
-        v0 = [1, 0, 0]
-
+        vector_base = [1, 0, 0]
         # compute yaw - rotation around z axis
-        yaw = np.arctan2(v1[1], v1[0]) - np.arctan2(v0[1], v0[0])
-
-        # rospy.loginfo("Yaw: %s" % str(yaw * 57.2957795))
-
-        q = quaternion_from_euler(0, 0, yaw)
-
-        # rospy.loginfo("Got quaternion: %s" % str(q))
-
-        return q
+        yaw = np.arctan2(vector_face_to_group[1], vector_face_to_group[0]) - np.arctan2(
+            vector_base[1], vector_base[0]
+        )
+        rospy.logdebug(f"Yaw: {str(yaw * 57.2957795)}")
+        quat = quaternion_from_euler(0, 0, yaw)
+        rospy.logdebug(f"Got quaternion: {str(quat)}")
+        return quat
 
     def show_markers(self, grouped_faces):
         """
@@ -675,10 +705,7 @@ class FaceLocalizer:
         group_id: str,
         x_coord: float,
         y_coord: float,
-        rr_x: float,
-        rr_y: float,
-        rr_z: float,
-        rr_w: float,
+        face_orientation: Quaternion,
         normal_x: float,
         normal_y: float,
         face_c_x: float,
@@ -703,10 +730,10 @@ class FaceLocalizer:
         msg = UniqueFaceCoords()
         msg.x_coord = x_coord
         msg.y_coord = y_coord
-        msg.rr_x = rr_x
-        msg.rr_y = rr_y
-        msg.rr_z = rr_z
-        msg.rr_w = rr_w
+        msg.rr_x = face_orientation.x
+        msg.rr_y = face_orientation.y
+        msg.rr_z = face_orientation.z
+        msg.rr_w = face_orientation.w
         msg.group_id = group_id
         msg.normal_x = normal_x
         msg.normal_y = normal_y

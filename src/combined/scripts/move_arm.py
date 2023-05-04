@@ -1,12 +1,21 @@
 #!/usr/bin/python3
+"""
+Module for moving the robot's arm.
+"""
 
-import rospy
 import time
+import rospy
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from std_msgs.msg import String
 
 
-class Arm_Mover:
+# TODO: refractor: too many instance attributes pylint: disable=fixme
+# pylint: disable=too-many-instance-attributes
+class ArmMover:
+    """
+    Class for moving the robot's arm.
+    """
+
     def __init__(self):
         # currently run from inside another node (brain.py)
         # rospy.init_node('arm_mover', anonymous=True)
@@ -14,9 +23,7 @@ class Arm_Mover:
         self.arm_movement_pub = rospy.Publisher(
             "/turtlebot_arm/arm_controller/command", JointTrajectory, queue_size=1
         )
-        self.arm_user_command_sub = rospy.Subscriber(
-            "/arm_command", String, self.new_user_command
-        )
+        self.arm_user_command_sub = rospy.Subscriber("/arm_command", String, self.new_user_command)
 
         # Just for controlling wheter to set the new arm position
         self.user_command = None
@@ -31,9 +38,7 @@ class Arm_Mover:
             "arm_wrist_flex_joint",
         ]
         self.retract.points = [
-            JointTrajectoryPoint(
-                positions=[0, -1.3, 2.2, 1], time_from_start=rospy.Duration(1)
-            )
+            JointTrajectoryPoint(positions=[0, -1.3, 2.2, 1], time_from_start=rospy.Duration(1))
         ]
 
         self.extend = JointTrajectory()
@@ -46,9 +51,7 @@ class Arm_Mover:
         # self.extend.points = [JointTrajectoryPoint(positions=[0,0.3,1,0],
         # self.extend.points = [JointTrajectoryPoint(positions=[0.35,0.7,0.75,0],
         self.extend.points = [
-            JointTrajectoryPoint(
-                positions=[0.35, 1.1, 0.5, 0], time_from_start=rospy.Duration(1)
-            )
+            JointTrajectoryPoint(positions=[0.35, 1.1, 0.5, 0], time_from_start=rospy.Duration(1))
         ]
 
         self.extend_ring = JointTrajectory()
@@ -61,9 +64,7 @@ class Arm_Mover:
         # self.extend_ring.points = [JointTrajectoryPoint(positions=[0,-1.3,2.7,-0.5],
         #                                             time_from_start = rospy.Duration(1))]
         self.extend_ring.points = [
-            JointTrajectoryPoint(
-                positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(1)
-            )
+            JointTrajectoryPoint(positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(1))
         ]
 
         self.extend_ring_close = JointTrajectory()
@@ -76,17 +77,23 @@ class Arm_Mover:
         # self.extend_ring.points = [JointTrajectoryPoint(positions=[0,-1.3,2.7,-0.5],
         #                                             time_from_start = rospy.Duration(1))]
         self.extend_ring_close.points = [
-            JointTrajectoryPoint(
-                positions=[0, 1.2, 0, 0.3], time_from_start=rospy.Duration(1)
-            )
+            JointTrajectoryPoint(positions=[0, 1.2, 0, 0.3], time_from_start=rospy.Duration(1))
         ]
 
-    def new_user_command(self, data):
+    def new_user_command(self, data: String) -> None:
+        """
+        Receives a new command from the user.
+
+        Args:
+            data (String): The new command.
+        """
         self.user_command = data.data.strip()
         self.send_command = True
 
-    def update_position(self):
-        # Only if we had a new command
+    def update_position(self) -> None:
+        """
+        Updates the arm position.
+        """
         if self.send_command:
             if self.user_command == "retract":
                 self.arm_movement_pub.publish(self.retract)
@@ -96,13 +103,12 @@ class Arm_Mover:
                 print("Extended arm!")
             else:
                 print("Unknown instruction:", self.user_command)
-                return -1
             self.send_command = False
 
 
 if __name__ == "__main__":
     rospy.init_node("arm_mover", anonymous=True)
-    am = Arm_Mover()
+    am = ArmMover()
     time.sleep(0.5)
     # am.arm_movement_pub.publish(am.retract)
     am.arm_movement_pub.publish(am.extend)

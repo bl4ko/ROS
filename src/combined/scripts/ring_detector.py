@@ -3,6 +3,9 @@
 This script is used for detecting rings in images.
 """
 
+# TODO: pylint: disable=fixme
+# pylint: disable=too-many-instance-attributes, disable=too-many-locals, disable=W0644, disable=R0801
+
 import sys
 from collections import Counter
 from typing import Tuple, List
@@ -28,6 +31,7 @@ Ellipse = Tuple[Tuple[float, float], Tuple[float, float], float]
 LAST_PROCESSED_IMAGE_TIME = 0  # Variable for storing the time of the last processed image
 
 
+# pylint: disable= too-few-public-methods
 class DetectedRing:
     """
     Class for holding information about detected rings.
@@ -326,38 +330,6 @@ class RingDetector:
                 rospy.logdebug("Candidate not valid, because too far away")
                 continue
 
-            # If there are no valid depth values in the center slice, skip to the next candidate
-            # if len(center_depth_slice) <= 0:
-            #     rospy.logdebug("No valid depth values in center slice")
-            #     continue
-
-            # Calculate the mean depth value at the center of the candidate ellipse pair
-            # mean_center_depth = (
-            #     np.NaN
-            #     if np.all(center_depth_slice != center_depth_slice)
-            #     else np.nanmean(center_depth_slice)
-            # )
-
-            # Print debugging information
-            # rospy.logdebug(f"Mean center depth: {str(mean_center_depth)}")
-
-            # Set a depth difference threshold to consider an object as having a hole in the middle
-            # depth_difference_threshold = 0.1
-            # depth_difference = abs(median_ring_depth - mean_center_depth)
-
-            # Print debugging information
-            # rospy.logdebug(f"Depth difference: {str(depth_difference)}")
-
-            # Check if the depth difference is NaN
-            # if math.isnan(depth_difference):
-            #     rospy.logdebug("Candidate not valid, because depth difference is NaN")
-            #     continue
-
-            # if there is no hole in the middle -> candidate is not valid
-            # if depth_difference < depth_difference_threshold:
-            #     rospy.logdebug("Candidate not valid, because no hole in the middle")
-            #     continue
-
             # From here on we have a valid detection -> true ring
             ring_pose = self.get_pose(
                 ellipse=inner_ellipse, dist=median_ring_depth, stamp=depth_img_time
@@ -428,14 +400,14 @@ class RingDetector:
         print("angle_to_target: ", angle_to_target)
 
         # Get the angles in the base_link relative coordinate system
-        x, y = dist * np.cos(angle_to_target), dist * np.sin(angle_to_target)
-        print("x, y: ", x, y)
+        x_coord, y_coord = dist * np.cos(angle_to_target), dist * np.sin(angle_to_target)
+        print("x, y: ", x_coord, y_coord)
 
         # Define a stamped message for transformation - in the "camera rgb frame"
         point_s = PointStamped()
-        point_s.point.x = -y
+        point_s.point.x = -y_coord
         point_s.point.y = 0
-        point_s.point.z = x
+        point_s.point.z = x_coord
         point_s.header.frame_id = "camera_rgb_optical_frame"
         point_s.header.stamp = stamp
         # print("point_s: ", point_s)
@@ -462,8 +434,7 @@ class RingDetector:
                 "Transformation into real world coordinates not available, will try again later:"
                 f" {err}"
             )
-            pose = None
-            return
+            return None
 
         return pose
 
@@ -605,10 +576,10 @@ class RingDetector:
         """
         cv2.namedWindow("img")
 
-        def mouse_event(event, x: float, y: float, flags, param):
+        def mouse_event(event, x_mouse: float, y_mouse: float, param):
             if event == cv2.EVENT_MOUSEMOVE:
                 # print the pixel value at the x, y coordinate of the image
-                print(param[y, x])
+                print(param[y_mouse, x_mouse])
 
         # Set the mouse callback function to the window
         cv2.setMouseCallback("img", mouse_event, param=img)
