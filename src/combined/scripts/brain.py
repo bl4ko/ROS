@@ -511,6 +511,9 @@ class Brain:
                                 new_face.rr_w,
                             )
 
+                            #TODO RECOGNIZE POSTER HERE
+                            
+
                             rospy.loginfo(f"Greeting face id: {new_face.group_id}")
                             self.sound_player.play_greeting_sound()
                             rospy.sleep(2)
@@ -1036,5 +1039,5 @@ if __name__ == "__main__":
     rospy.init_node("brain")
     brain = Brain()
     brain.is_ready = True
-    brain.think_rings_cylinders()
+    brain.think()
     rospy.spin()

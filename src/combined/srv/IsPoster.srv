@@ -1,0 +1,7 @@
+# Request
+int32 group_id
+---
+# Response
+bool is_poster
+string poster_text
+bool status

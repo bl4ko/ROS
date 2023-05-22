@@ -759,7 +759,7 @@ class MapManager:
             # Wall or close to wall
             return False
 
-        rospy.logwarn(f"Unknown cost value: {cost}")
+        #rospy.logwarn(f"Unknown cost value: {cost}")
         # You can choose to treat unknown values as obstacles or not:
         return False  # Treat unknown cost values as obstacles
         # return True  # Treat unknown cost values as free space
