@@ -1,0 +1,175 @@
+
+Mercinary data:
+Name: joe, Cylinder color: green, Ring color: green, Wanted price: 6Name: amber, Cylinder color: red, Ring color: red, Wanted price: 7000
+Ring data:
+[group_id: 0
+ring_pose: 
+  position: 
+    x: 1.9836713632013432
+    y: 1.42121572146112
+    z: 0.29720272740313475
+  orientation: 
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0
+color: "green", group_id: 1
+ring_pose: 
+  position: 
+    x: 1.716877998716427
+    y: -0.5344505572310599
+    z: 0.2972028463187346
+  orientation: 
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0
+color: "blue", group_id: 2
+ring_pose: 
+  position: 
+    x: -0.9969968307719415
+    y: 2.348920896071982
+    z: 0.2972026650262482
+  orientation: 
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0
+color: "red", group_id: 3
+ring_pose: 
+  position: 
+    x: 2.6068232491969434
+    y: -1.4863369474606243
+    z: 0.29720244456941985
+  orientation: 
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0
+color: "black"]
+Face data:
+[x_coord: -1.5811567306518555
+y_coord: 1.582653284072876
+group_id: 1
+rr_x: 0.0
+rr_y: 0.0
+rr_z: 0.9982127547264099
+rr_w: 0.0597606860101223
+normal_x: -0.9809104204177856
+normal_y: 0.14255911111831665
+face_c_x: -2.034799098968506
+face_c_y: 1.6371656656265259
+identity: '', x_coord: 3.500000238418579
+y_coord: -0.9475992918014526
+group_id: 2
+rr_x: 0.0
+rr_y: 0.0
+rr_z: -0.06429019570350647
+rr_w: 0.9979312419891357
+normal_x: 0.9747958779335022
+normal_y: -0.1636766493320465
+face_c_x: 3.9453632831573486
+face_c_y: -1.0052220821380615
+identity: '', x_coord: -0.049999818205833435
+y_coord: -0.29728439450263977
+group_id: 3
+rr_x: 0.0
+rr_y: 0.0
+rr_z: 0.07025137543678284
+rr_w: 0.9975293278694153
+normal_x: 0.9913855791091919
+normal_y: 0.11333172768354416
+face_c_x: 0.38904401659965515
+face_c_y: -0.2351364940404892
+identity: '', x_coord: -0.37364622950553894
+y_coord: -1.5499998331069946
+group_id: 4
+rr_x: 0.0
+rr_y: 0.0
+rr_z: -0.7442452907562256
+rr_w: 0.6679064035415649
+normal_x: -0.05523822456598282
+normal_y: -0.9921512007713318
+face_c_x: -0.4183918237686157
+face_c_y: -1.9626528024673462
+identity: '', x_coord: 0.9924132227897644
+y_coord: -1.1499998569488525
+group_id: 5
+rr_x: 0.0
+rr_y: 0.0
+rr_z: 0.6841403245925903
+rr_w: 0.7293504476547241
+normal_x: 0.01030998956412077
+normal_y: 0.9940687417984009
+face_c_x: 1.0180964469909668
+face_c_y: -0.7489175200462341
+identity: '']
+Cylinder data:
+cylinder_id: 0, color: green, cylinder_greet_pose: position: 
+  x: 1.450000203400851
+  y: 2.450000218302012
+  z: 0
+orientation: 
+  x: 0.0
+  y: 0.0
+  z: 0.24023593969267318
+  w: 0.9707145271808691 , cylinder_pose: position: 
+  x: 2.0303753475096555
+  y: 2.7560093872201086
+  z: 0.2782366643918936
+orientation: 
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  w: 1.0
+cylinder_id: 1, color: blue, cylinder_greet_pose: position: 
+  x: 0.9000001952052123
+  y: 0.050000182539225335
+  z: 0
+orientation: 
+  x: 0.0
+  y: 0.0
+  z: -0.7300127016978547
+  w: 0.6834335778697144 , cylinder_pose: position: 
+  x: 0.8632111753436658
+  y: -0.5075761359412729
+  z: 0.27371602492342284
+orientation: 
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  w: 1.0
+cylinder_id: 2, color: red, cylinder_greet_pose: position: 
+  x: -1.3999998390674584
+  y: 0.050000182539225335
+  z: 0
+orientation: 
+  x: 0.0
+  y: 0.0
+  z: -0.7087006835611359
+  w: 0.7055092778411767 , cylinder_pose: position: 
+  x: -1.4023514113209796
+  y: -0.47102413429723666
+  z: 0.27304525364837895
+orientation: 
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  w: 1.0
+cylinder_id: 3, color: yellow, cylinder_greet_pose: position: 
+  x: 1.8500002093613155
+  y: -1.4499998398125165
+  z: 0
+orientation: 
+  x: 0.0
+  y: 0.0
+  z: -0.6981719721646019
+  w: 0.715930092455814 , cylinder_pose: position: 
+  x: 1.8625445370586984
+  y: -1.9493815864815758
+  z: 0.2746513160493179
+orientation: 
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  w: 1.0
