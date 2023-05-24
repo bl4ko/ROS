@@ -52,9 +52,7 @@ class PosterDialogue:
 
     def start(self):
         "Start the poster dialogue"
-        rospy.loginfo(
-            f"I detected the following text on the poster: {self.detected_text}"
-        )
+        rospy.loginfo(f"I detected the following text on the poster: {self.detected_text}")
         self.sound_player.say("Who is in this poster")
         self.name = input("Who is in this poster? ").lower()
 
@@ -69,7 +67,5 @@ class PosterDialogue:
         Check if the dialogue is valid.
         """
         return (
-            self.name is not None
-            and self.wanted_price is not None
-            and self.ring_color is not None
+            self.name is not None and self.wanted_price is not None and self.ring_color is not None
         )

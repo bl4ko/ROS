@@ -118,12 +118,8 @@ class FaceGroup:
         """
         Updates the average pose of the group of faces.
         """
-        self.avg_pose.position.x = np.mean(
-            [face.pose.position.x for face in self.faces]
-        )
-        self.avg_pose.position.y = np.mean(
-            [face.pose.position.y for face in self.faces]
-        )
+        self.avg_pose.position.x = np.mean([face.pose.position.x for face in self.faces])
+        self.avg_pose.position.y = np.mean([face.pose.position.y for face in self.faces])
 
     def add_face(self, face: DetectedFace) -> None:
         """
@@ -165,9 +161,7 @@ class DetectedFacesTracker:
         )
         self.history_limit: int = 50  # number of detections to keep in the history
         self.face_max_distance: float = 3  # in meters max distance to a valid face
-        self.greeting_max_distance: float = (
-            0.6  # in meters max distance to a valid face
-        )
+        self.greeting_max_distance: float = 0.6  # in meters max distance to a valid face
         self.map_manager: MapManager = MapManager()
 
     def print_face_groups(self):
@@ -198,15 +192,11 @@ class DetectedFacesTracker:
                 face_group.avg_face_normal[1],
             )
             fg_normal1, fg_normal2 = face_group.get_face_normal(face)
-            same_side = self.same_side_normal(
-                fg_normal1, fg_normal2, normal_1, normal_2
-            )
+            same_side = self.same_side_normal(fg_normal1, fg_normal2, normal_1, normal_2)
 
             if self.is_close(avg_pose, face.pose) and same_side:
                 if face_group.detections >= self.history_limit:
-                    print(
-                        "Face group has reached the history limit, not adding new faces"
-                    )
+                    print("Face group has reached the history limit, not adding new faces")
                     return
 
                 face_group.add_face(face)
@@ -214,15 +204,11 @@ class DetectedFacesTracker:
                 self.print_face_groups()
                 return
 
-        print(
-            "New face detected, new facegroup created and added to list of unique groups!"
-        )
+        print("New face detected, new facegroup created and added to list of unique groups!")
         self.face_groups.append(FaceGroup(face, len(self.face_groups) + 1))
         self.print_face_groups()
 
-    def update_poster_data(
-        self, is_poster: int, poster_text: str, group_id: int
-    ) -> bool:
+    def update_poster_data(self, is_poster: int, poster_text: str, group_id: int) -> bool:
         """
         Updates the poster data of a group of faces.
 
@@ -283,9 +269,7 @@ class DetectedFacesTracker:
 
         # Iterate over valid face groups
         for group in (
-            g
-            for g in self.face_groups
-            if g.detections >= self.valid_detection_threshold
+            g for g in self.face_groups if g.detections >= self.valid_detection_threshold
         ):
             avg_pose = group.avg_pose
             total_weight = 0
@@ -360,9 +344,7 @@ class FaceLocalizer:
         self.detected_faces_publisher = rospy.Publisher(
             "detected_faces", DetectedFaces, queue_size=20
         )
-        self.bridge = (
-            CvBridge()
-        )  # Object for converting between ROS and OpenCV image formats
+        self.bridge = CvBridge()  # Object for converting between ROS and OpenCV image formats
         self.dims = (0, 0, 0)  # A help variable for holding the dimensions of the image
         self.marker_array = MarkerArray()  # Store markers for faces
         self.marker_num = 1
@@ -374,9 +356,7 @@ class FaceLocalizer:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
         self.image_lock = threading.Lock()
         self.rgb_image_sub = message_filters.Subscriber("/camera/rgb/image_raw", Image)
-        self.depth_image_sub = message_filters.Subscriber(
-            "/camera/depth/image_raw", Image
-        )
+        self.depth_image_sub = message_filters.Subscriber("/camera/depth/image_raw", Image)
         self.time_synchronizer = ApproximateTimeSynchronizer(
             [self.rgb_image_sub, self.depth_image_sub], queue_size=5, slop=0.5
         )
@@ -387,9 +367,7 @@ class FaceLocalizer:
         self.unique_groups = 0
         self.already_sent_ids = []
         self.reader = easyocr.Reader(["en"], gpu=True)
-        self.is_poster_service = rospy.Service(
-            "is_poster", IsPoster, self.is_poster_callback
-        )
+        self.is_poster_service = rospy.Service("is_poster", IsPoster, self.is_poster_callback)
 
     def image_callback(self, rgb_image_msg, depth_image_msg):
         """
@@ -427,9 +405,7 @@ class FaceLocalizer:
         face_center_x = self.dims[1] / 2 - (x_1 + x_2) / 2.0
         # face_center_y = self.dims[0] / 2 - (y1 + y2) / 2.0
         angle_to_target = np.arctan2(face_center_x, kinect_focal_length)
-        x_coord, y_coord = dist * np.cos(angle_to_target), dist * np.sin(
-            angle_to_target
-        )
+        x_coord, y_coord = dist * np.cos(angle_to_target), dist * np.sin(angle_to_target)
         point_s = PointStamped()
         point_s.point.x = -y_coord
         point_s.point.y = 0
@@ -449,9 +425,7 @@ class FaceLocalizer:
             pose = None
         return pose
 
-    def detect_text(
-        self, rgb_image: np.ndarray, confidence_threshold=0.7
-    ) -> List[tuple]:
+    def detect_text(self, rgb_image: np.ndarray, confidence_threshold=0.7) -> List[tuple]:
         """
         Detects text in an RGB image.
 
@@ -473,7 +447,6 @@ class FaceLocalizer:
 
         # return the text and the bounding box
         return result
-    
 
     def get_indentity(self, face_region: np.ndarray) -> str:
         """
@@ -487,12 +460,7 @@ class FaceLocalizer:
             str: The identity of the person in the image
         """
 
-        #use dlib to exteact vector
-        
-        
-
-
-
+        # use dlib to exteact vector
 
     def is_poster_callback(self, request: IsPosterRequest) -> IsPosterResponse:
         """
@@ -527,9 +495,7 @@ class FaceLocalizer:
                 rgb_converted_image.flags.writeable = False
                 detection_results = face_detection.process(rgb_converted_image)
                 rgb_converted_image.flags.writeable = True
-                rgb_converted_image = cv2.cvtColor(
-                    rgb_converted_image, cv2.COLOR_RGB2BGR
-                )
+                rgb_converted_image = cv2.cvtColor(rgb_converted_image, cv2.COLOR_RGB2BGR)
 
                 print(
                     "isPosterCallback: Face detection results: ",
@@ -540,9 +506,7 @@ class FaceLocalizer:
                     for detection in detection_results.detections:
                         confidence_score = detection.score[0]
                         if confidence_score > 0.75:
-                            print(
-                                "Face detected with high confidence: ", confidence_score
-                            )
+                            print("Face detected with high confidence: ", confidence_score)
 
                             bounding_box = detection.location_data.relative_bounding_box
                             image_height, image_width, _ = rgb_converted_image.shape
@@ -560,18 +524,9 @@ class FaceLocalizer:
                                 img_y + height,
                             )
                             face_region = rgb_image[y_1:y_2, x_1:x_2]
-                            face_distance = float(
-                                np.nanmean(depth_image[y_1:y_2, x_1:x_2])
-                            )
+                            face_distance = float(np.nanmean(depth_image[y_1:y_2, x_1:x_2]))
 
-                            #get indentity based  on facial featurs using dlib 
-
-
-
-
-
-
-
+                            # get indentity based  on facial featurs using dlib
 
                             print("Distance to face", face_distance)
                             depth_timestamp = self.latest_depth_image_msg.header.stamp
@@ -603,9 +558,7 @@ class FaceLocalizer:
                             # Crop and detect text
                             text_region = rgb_image[y1_new:y2_new, x1_new:x2_new]
 
-                            text = self.detect_text(
-                                text_region, confidence_threshold=0.7
-                            )
+                            text = self.detect_text(text_region, confidence_threshold=0.7)
 
                             recognized_text = {}
 
@@ -673,12 +626,10 @@ class FaceLocalizer:
                             # )
 
                             # based on group id and text, determine if the poster is the target poster
-                            updated_face_group = (
-                                self.detected_faces_tracker.update_poster_data(
-                                    is_poster=is_poster,
-                                    poster_text=recognized_text,
-                                    group_id=request.group_id,
-                                )
+                            updated_face_group = self.detected_faces_tracker.update_poster_data(
+                                is_poster=is_poster,
+                                poster_text=recognized_text,
+                                group_id=request.group_id,
                             )
 
                             if updated_face_group:
@@ -777,18 +728,10 @@ class FaceLocalizer:
                             robot_x = base_position_transform.transform.translation.x
                             robot_y = base_position_transform.transform.translation.y
                             robot_z = base_position_transform.transform.translation.z
-                            robot_rotation_x = (
-                                base_position_transform.transform.rotation.x
-                            )
-                            robot_rotation_y = (
-                                base_position_transform.transform.rotation.y
-                            )
-                            robot_rotation_z = (
-                                base_position_transform.transform.rotation.z
-                            )
-                            robot_rotation_w = (
-                                base_position_transform.transform.rotation.w
-                            )
+                            robot_rotation_x = base_position_transform.transform.rotation.x
+                            robot_rotation_y = base_position_transform.transform.rotation.y
+                            robot_rotation_z = base_position_transform.transform.rotation.z
+                            robot_rotation_w = base_position_transform.transform.rotation.w
 
                         except TransformException as error:
                             rospy.logerr(f"Error in base coords lookup: {error}")
@@ -885,9 +828,7 @@ class FaceLocalizer:
                 rospy.logerr(bridge_error)
 
             try:
-                depth_image = self.bridge.imgmsg_to_cv2(
-                    self.latest_depth_image_msg, "32FC1"
-                )
+                depth_image = self.bridge.imgmsg_to_cv2(self.latest_depth_image_msg, "32FC1")
             except CvBridgeError as bridge_error:
                 rospy.logerr(bridge_error)
 
