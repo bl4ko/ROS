@@ -1208,7 +1208,7 @@ class Brain:
 
                 self.move_to_goal(goal[0], goal[1], *quaternion)
 
-                self.rotate(360, angular_speed=0.7)
+                self.rotate(360, angular_speed=0.3)
 
                 with self.detected_faces_lock:
                     if len(self.detected_faces) > detected_faces_count:
@@ -1235,7 +1235,11 @@ class Brain:
 
                             # # Recognize poster here
                             response = self.poster_info_proxy(new_face.group_id)
-                            rospy.loginfo(f"Response: {response}")
+                            for i in range(10):
+                                if response.status == 1:
+                                    break
+                                response = self.poster_info_proxy(new_face.group_id)
+                                rospy.sleep(0.1)
 
                             if response.status == 0:
                                 rospy.logwarn("No poster info found this should not happen")

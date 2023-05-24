@@ -489,7 +489,7 @@ class FaceLocalizer:
 
             # detect face with near range
             with mp.solutions.face_detection.FaceDetection(
-                model_selection=1, min_detection_confidence=0.7
+                model_selection=1, min_detection_confidence=0.65
             ) as face_detection:
                 rgb_converted_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
                 rgb_converted_image.flags.writeable = False
@@ -502,10 +502,13 @@ class FaceLocalizer:
                     detection_results.detections,
                 )
 
+                if detection_results.detections is None:
+                    rospy.loginfo(f"Number of detections is None")
+
                 if detection_results.detections:
                     for detection in detection_results.detections:
                         confidence_score = detection.score[0]
-                        if confidence_score > 0.75:
+                        if confidence_score > 0.65:
                             print("Face detected with high confidence: ", confidence_score)
 
                             bounding_box = detection.location_data.relative_bounding_box
@@ -657,7 +660,7 @@ class FaceLocalizer:
             bool: True if a real face was detected, False otherwise.
         """
         with mp.solutions.face_detection.FaceDetection(
-            model_selection=detection_range, min_detection_confidence=0.7
+            model_selection=detection_range, min_detection_confidence=0.60
         ) as face_detection:
             rgb_converted_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
             rgb_converted_image.flags.writeable = False
@@ -668,7 +671,8 @@ class FaceLocalizer:
             if detection_results.detections:
                 for detection in detection_results.detections:
                     confidence_score = detection.score[0]
-                    if confidence_score > 0.75:
+                    print("Confidence score: ", confidence_score)
+                    if confidence_score > 0.60:
                         print("Face detected with high confidence: ", confidence_score)
 
                         bounding_box = detection.location_data.relative_bounding_box
