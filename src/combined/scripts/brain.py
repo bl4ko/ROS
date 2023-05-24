@@ -7,7 +7,7 @@
 Module representing brain of the turlte bot. Currently it moves the turtle bot 
 to all of the keypoints and do a 360 degree rotation at each of them.
 """
-
+import easyocr
 import math
 import signal
 import sys
@@ -26,7 +26,66 @@ from visualization_msgs.msg import Marker
 from move_arm import ArmMover
 from laser_manager import LaserManager
 from nav_msgs.msg import Odometry
-from combined.msg import DetectedFaces, DetectedRings, CylinderGreetInstructions, UniqueRingCoords
+from combined.msg import (
+    DetectedFaces,
+    DetectedRings,
+    CylinderGreetInstructions,
+    UniqueRingCoords,
+)
+from combined.srv import IsPoster, IsPosterResponse, IsPosterRequest
+from dialogue import PosterDialogue, PersonDialogue
+
+from face_localizer_google import FaceGroup
+from ring_detector import RingGroup
+
+
+class Cylinder:
+    def __init__(
+        self, pose: Pose, color: str, cylinder_id: int, greet_pose: Pose
+    ) -> None:
+        self.cylinder_pose = pose
+        self.cylinder_color = color
+        self.cylinder_id = cylinder_id
+        self.cylinder_greet_pose = greet_pose
+
+
+class MercinaryInfo:
+    def __init__(
+        self,
+        name: str = None,
+        cylinder_color: str = None,
+        ring_color: str = None,
+        wanted_price: int = None,
+    ) -> None:
+        self.name: str = name
+        self.cylinder_color: str = cylinder_color
+        self.ring_color: str = ring_color
+        self.wanted_price: int = wanted_price
+
+    def __str__(self) -> str:
+        return f"Name: {self.name}, Cylinder color: {self.cylinder_color}, Ring color: {self.ring_color}, Wanted price: {self.wanted_price}"
+
+    def is_complete(self) -> bool:
+        """
+        Returns true if mercinary has enough information to complete the task, false otherwise
+        """
+        return (
+            self.name is not None
+            and self.cylinder_color is not None
+            and self.ring_color is not None
+            and self.wanted_price is not None
+        )
+
+    @staticmethod
+    def are_complete(mercinary_info_list) -> bool:
+        """
+        Returns true if all mercinaries in the list have enough information to complete the task, false otherwise
+        """
+        valid = True
+        for mercinary_info in mercinary_info_list:
+            if not mercinary_info.is_complete():
+                valid = False
+        return valid
 
 
 def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
@@ -38,9 +97,7 @@ def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
         frame (FrameType): The current stack frame.
     """
     signal_name = signal.Signals(sig).name
-    frame_info = (
-        f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
-    )
+    frame_info = f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
     rospy.loginfo(f"Program interrupted by {signal_name} signal, shutting down.")
     rospy.loginfo(f"Signal received at: {frame_info}")
     rospy.signal_shutdown(f"{signal_name} received")
@@ -63,14 +120,18 @@ class Brain:
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
         rospy.loginfo("Map manager is ready")
-        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
+        self.move_base_client = actionlib.SimpleActionClient(
+            "move_base", MoveBaseAction
+        )
         rospy.loginfo("Waiting for move_base server.")
         self.move_base_client.wait_for_server()
         self.velocity_publisher = rospy.Publisher(
             "mobile_base/commands/velocity", Twist, queue_size=10
         )
         self.init_planner()
-        self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: self.map_show_markers())
+        self.markers_timer = rospy.Timer(
+            rospy.Duration(1), lambda event: self.map_show_markers()
+        )
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
@@ -109,7 +170,9 @@ class Brain:
         self.sound_player = SoundPlayer()
         self.aditional_goals = []
 
-        self.current_goal_pub = rospy.Publisher("brain_current_goal", Marker, queue_size=10)
+        self.current_goal_pub = rospy.Publisher(
+            "brain_current_goal", Marker, queue_size=10
+        )
         self.current_goal_marker_id = 0
 
         # for moving arm
@@ -132,7 +195,18 @@ class Brain:
         self.laser_manager = LaserManager()
 
         self.current_robot_pose = None
-        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.current_robot_pose_callback)
+        self.odom_sub = rospy.Subscriber(
+            "/odom", Odometry, self.current_robot_pose_callback
+        )
+
+        # add service
+        rospy.loginfo("Waiting for poster info service")
+        rospy.wait_for_service("is_poster", timeout=20)
+        rospy.loginfo("Poster info service is ready")
+        self.poster_info_proxy = rospy.ServiceProxy("is_poster", IsPoster)
+
+        self.MercinaryInfos: List[MercinaryInfo] = []
+        self.CylinderList: List[Cylinder] = []
 
     def init_planner(self) -> None:
         """
@@ -325,11 +399,25 @@ class Brain:
         x_cylinder = cylinder_pose.position.x
         y_cylinder = cylinder_pose.position.y
 
-        cylinder_greet_pose = self.get_object_greet_pose(x_cylinder, y_cylinder, erosion=7)
+        cylinder_greet_pose = self.get_object_greet_pose(
+            x_cylinder, y_cylinder, erosion=7
+        )
 
         self.cylinder_coords.append(cylinder_pose)
         self.cylinder_colors.append(cylinder_color)
         self.cylinder_greet_poses.append(cylinder_greet_pose)
+
+        new_cylinder = Cylinder(
+            pose=cylinder_pose,
+            color=cylinder_color,
+            greet_pose=cylinder_greet_pose,
+            cylinder_id=data.object_id,
+        )
+        rospy.loginfo(
+            f"New cylinder with color {cylinder_color} and id {data.object_id} added to list"
+        )
+        self.CylinderList.append(new_cylinder)
+
         self.num_discovered_cylinders = self.num_discovered_cylinders + 1
 
         if self.num_discovered_cylinders >= self.num_all_cylinders:
@@ -416,7 +504,8 @@ class Brain:
             if in_sight_vertices:
                 in_sight_vertices.sort(
                     key=lambda vertex: math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2
+                        + (current_vertex[1] - vertex[1]) ** 2
                     )
                 )
                 nearest_vertex = in_sight_vertices[0]
@@ -426,7 +515,8 @@ class Brain:
 
                 for vertex in unvisited_vertices:
                     distance = math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2
+                        + (current_vertex[1] - vertex[1]) ** 2
                     )
                     if distance < nearest_distance:
                         nearest_distance = distance
@@ -451,12 +541,16 @@ class Brain:
         Returns:
             Tuple[float, float, float, float]: quaternion representing the orientation
         """
-        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
-        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
+        angle = math.atan2(
+            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
+        )
+        angle = math.atan2(
+            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
+        )
         quaternion = quaternion_from_euler(0, 0, angle)
         return quaternion
 
-    def think(self):
+    def think_old(self):
         """
         Main logic function for the turtle bot's brain. The turtle bot moves through the keypoints
         in the order determined by the nearest neighbor algorithm, performing a 360-degree rotation
@@ -511,8 +605,7 @@ class Brain:
                                 new_face.rr_w,
                             )
 
-                            #TODO RECOGNIZE POSTER HERE
-                            
+                            # TODO RECOGNIZE POSTER HERE
 
                             rospy.loginfo(f"Greeting face id: {new_face.group_id}")
                             self.sound_player.play_greeting_sound()
@@ -529,7 +622,9 @@ class Brain:
                 rospy.loginfo("Not all faces have been detected. Will start EXPLORING")
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo("No new goals found. Will stop i failed to find all faces")
+                    rospy.loginfo(
+                        "No new goals found. Will stop i failed to find all faces"
+                    )
                     break
                 rospy.loginfo(
                     f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
@@ -606,10 +701,14 @@ class Brain:
                 self.visit_found_cylinders()
 
             if not self.all_cylinders_found:
-                rospy.loginfo("Not all cylinders have been detected. Will start EXPLORING")
+                rospy.loginfo(
+                    "Not all cylinders have been detected. Will start EXPLORING"
+                )
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo("No new goals found. Will stop i failed to find all cylinders")
+                    rospy.loginfo(
+                        "No new goals found. Will stop i failed to find all cylinders"
+                    )
                     break
                 rospy.loginfo(
                     f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
@@ -682,7 +781,9 @@ class Brain:
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo("No new goals found. Will stop i failed to find all rings")
+                    rospy.loginfo(
+                        "No new goals found. Will stop i failed to find all rings"
+                    )
                     break
                 rospy.loginfo(
                     f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
@@ -715,7 +816,9 @@ class Brain:
 
             return closest_ring, closest_distance
 
-    def get_robot_distance_to_point(self, position_x: float, position_y: float) -> float:
+    def get_robot_distance_to_point(
+        self, position_x: float, position_y: float
+    ) -> float:
         """
         Returns robot distance to point (x,y)
         """
@@ -808,7 +911,9 @@ class Brain:
             ):
                 rospy.loginfo("Adjusting arm camera")
                 self.arm_pose = "adjust_ring_close"
-                self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring_close)
+                self.arm_mover.arm_movement_pub.publish(
+                    self.arm_mover.extend_ring_close
+                )
 
             elif (
                 self.arm_pose == "adjust_ring_close"
@@ -873,11 +978,19 @@ class Brain:
 
                         detected_rings_count = len(self.detected_rings)
 
-                if detected_rings_count >= target_ring_detections and self.all_cylinders_found:
+                if (
+                    detected_rings_count >= target_ring_detections
+                    and self.all_cylinders_found
+                ):
                     break
 
-            if detected_rings_count < target_ring_detections or not self.all_cylinders_found:
-                rospy.loginfo("Not all rings or cylinders have been detected. Will start EXPLORING")
+            if (
+                detected_rings_count < target_ring_detections
+                or not self.all_cylinders_found
+            ):
+                rospy.loginfo(
+                    "Not all rings or cylinders have been detected. Will start EXPLORING"
+                )
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
@@ -1032,6 +1145,387 @@ class Brain:
         )
 
         rospy.loginfo(f"The distance traveled to the ground ring is {dist_traveled}")
+        rospy.loginfo("I have finished my task")
+
+    def poster_manual_input(self, poster_text: str):
+        """
+        Function for manual input of the poster text.
+
+        :param poster_text: The text on the poster. (used for autocompleting the dialogue)
+        """
+
+        dialogue = PosterDialogue(poster_text)
+        dialogue.start()
+
+        if dialogue.is_valid():
+            new_mercinary_info = None
+
+            # add new mercinary info if it does not exist yet if it does exist, update it
+
+            for mercinary_info in self.MercinaryInfos:
+                if mercinary_info.name == dialogue.name:
+                    new_mercinary_info = mercinary_info
+                    new_mercinary_info.ring_color = dialogue.ring_color
+                    new_mercinary_info.wanted_price = dialogue.wanted_price
+
+            if new_mercinary_info is None:
+                new_mercinary_info = MercinaryInfo(
+                    name=dialogue.name,
+                    ring_color=dialogue.ring_color,
+                    wanted_price=dialogue.wanted_price,
+                )
+                self.MercinaryInfos.append(new_mercinary_info)
+
+        rospy.loginfo(
+            f"Finished poster dialogue. Person: {dialogue.name}, Ring(prison): {dialogue.ring_color}, Price: {dialogue.wanted_price}"
+        )
+
+    def person_manual_dialogue(self):
+        """
+        Function for manual input of the person dialogue.
+        """
+        dialogue = PersonDialogue()
+        dialogue.start()
+
+        if dialogue.is_valid():
+            new_mercinary_info = None
+            for mercinary_info in self.MercinaryInfos:
+                if mercinary_info.name == dialogue.name:
+                    new_mercinary_info = mercinary_info
+                    new_mercinary_info.cylinder_color = dialogue.cylinder_color
+
+            if new_mercinary_info == None:
+                new_mercinary_info = MercinaryInfo(
+                    name=dialogue.name,
+                    cylinder_color=dialogue.cylinder_color,
+                )
+                self.MercinaryInfos.append(new_mercinary_info)
+
+        rospy.loginfo(
+            f"Finished person dialogue. Person: {dialogue.name}, Cylinder: {dialogue.cylinder_color}"
+        )
+
+    def think(self):
+        """
+        Main logic function for the turtle bot's brain. The turtle bot moves through the keypoints
+        in the order determined by the nearest neighbor algorithm, performing a 360-degree rotation
+        at each keypoint. If any new faces are detected during the rotation, the turtle bot moves to
+        the face location and then continues to the next keypoint.
+        """
+
+        detected_faces_count = 0
+        detected_faces_group_ids = set()
+        detected_rings_group_ids = set()
+
+        detected_rings_count = 0
+        detected_rings_group_ids = set()
+
+        goals = self.map_manager.get_goals()
+        arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
+
+        while not rospy.is_shutdown():
+            optimized_path = self.nearest_neighbor_path(goals, goals[0])
+
+            for i, goal in enumerate(optimized_path):
+                rospy.loginfo(
+                    f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
+                    f" {len(self.detected_faces)}"
+                )
+
+                quaternion = (0, 0, 0, 1)
+                if i < len(optimized_path) - 1:
+                    next_goal = optimized_path[i + 1]
+                    quaternion = self.orientation_between_points(goal, next_goal)
+
+                self.move_to_goal(goal[0], goal[1], *quaternion)
+
+                self.rotate(360, angular_speed=0.7)
+
+                with self.detected_faces_lock:
+                    if len(self.detected_faces) > detected_faces_count:
+                        rospy.loginfo(
+                            f"I have detected {len(self.detected_faces) - detected_faces_count} new"
+                            " faces during this iteration."
+                        )
+
+                        new_faces = [
+                            face
+                            for face in self.detected_faces
+                            if face.group_id not in detected_faces_group_ids
+                        ]
+
+                        for new_face in new_faces:
+                            self.move_to_goal(
+                                new_face.x_coord,
+                                new_face.y_coord,
+                                new_face.rr_x,
+                                new_face.rr_y,
+                                new_face.rr_z,
+                                new_face.rr_w,
+                            )
+
+                            # # Recognize poster here
+                            response = self.poster_info_proxy(new_face.group_id)
+                            rospy.loginfo(f"Response: {response}")
+
+                            if response.status == 0:
+                                rospy.logwarn(
+                                    "No poster info found this should not happen"
+                                )
+                                # if poster detection fails continue to next explore point and return to the face on the next iteration
+                                continue
+
+                            # based on the response, decide if doing person or poster dilogue
+                            if response.is_poster:
+                                self.poster_manual_input(response.poster_text)
+
+                            else:
+                                self.person_manual_dialogue()
+
+                            # rospy.loginfo(f"Greeting face id: {new_face.group_id}")
+                            self.sound_player.play_goodbye_sound()
+                            rospy.sleep(2)
+                            rospy.loginfo(f"Done greeting face id: {new_face.group_id}")
+                            detected_faces_group_ids.add(new_face.group_id)
+                            detected_faces_count += 1
+
+                with self.detected_rings_lock:
+                    if len(self.detected_rings) > detected_rings_count:
+                        rospy.loginfo(
+                            f"I have detected {len(self.detected_rings) - detected_rings_count} new"
+                            " rings during this iteration."
+                        )
+
+                        new_rings: List[UniqueRingCoords] = [
+                            ring
+                            for ring in self.detected_rings
+                            if ring.group_id not in detected_rings_group_ids
+                        ]
+
+                        for new_ring in new_rings:
+                            rospy.loginfo(
+                                f"Saving ring with id: {new_ring.group_id}, color: {new_ring.color}"
+                            )
+                            detected_rings_group_ids.add(new_ring.group_id)
+
+                        detected_rings_count = len(self.detected_rings)
+
+            if not MercinaryInfo.are_complete(self.MercinaryInfos):
+                previous_goals = goals
+                self.aditional_goals = self.map_manager.get_get_aditional_goals()
+                rospy.loginfo(f"Mercinary Infos are not complte.")
+                for mercinary_info in self.MercinaryInfos:
+                    rospy.loginfo(f"Mercinary Info: {mercinary_info}")
+
+                # if the distance between the last goal and the first goal is less than 0.1m remove the goal
+                for goal in self.aditional_goals:
+                    if (
+                        np.linalg.norm(np.array(goal) - np.array(previous_goals[0]))
+                        < 0.1
+                    ):
+                        rospy.loginfo(
+                            f"Removing goal: {goal} becuse it is too close to the goal{previous_goals[0]}"
+                        )
+                        self.aditional_goals.remove(goal)
+                        rospy.loginfo("Removed goal becuse i wasnt able to reach it")
+
+                if len(self.aditional_goals) < 1:
+                    rospy.loginfo("No new goals found. Will stop")
+                    break
+                rospy.loginfo(
+                    f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
+                )
+                goals = self.aditional_goals
+
+            else:
+                break
+
+        if not MercinaryInfo.are_complete(self.MercinaryInfos):
+            rospy.logerr("I was not able to get all the mercenary info CRITICAL ERROR")
+
+        arm_cam_timer.shutdown()
+        with open("mercinary_data.txt", "w", encoding="utf-8") as f:
+            f.write("\nMercinary data:\n")
+            for mercinary_info in self.MercinaryInfos:
+                f.write(str(mercinary_info))
+
+            f.write("\nRing data:\n")
+            f.write(str(self.detected_rings))
+
+            f.write("\nFace data:\n")
+            f.write(str(self.detected_faces))
+
+            f.write("\nCylinder data:\n")
+            for cylinder in self.CylinderList:
+                f.write(
+                    f"cylinder_id: {cylinder.cylinder_id}, color: {cylinder.cylinder_color}, cylinder_greet_pose: {cylinder.cylinder_greet_pose} , cylinder_pose: {cylinder.cylinder_pose}\n"
+                )
+
+        # go through all mercenary infos and find one with highest wanted price
+        highest_mercinary = max(self.MercinaryInfos, key=lambda x: x.wanted_price)
+        rospy.loginfo(
+            f"Found mercinary with highest wanted price: {highest_mercinary}, thinking about which cylinder he is hiding at"
+        )
+
+        # ring_color, cylinder_color = highest_mercinary.ring_color, highest_mercinary.cylinder_color
+        hiding_place_cylinder = None
+        for cylinder in self.CylinderList:
+            if cylinder.cylinder_color == highest_mercinary.cylinder_color:
+                hiding_place_cylinder = cylinder
+                break
+
+        if hiding_place_cylinder is None:
+            rospy.logerr(
+                "Could not find cylinder with same color as mercinary hiding place this should not happen"
+            )
+            return
+
+        else:
+            rospy.loginfo(
+                f"Remembered about he {hiding_place_cylinder.cylinder_color} cylinder that someone told me about"
+            )
+
+        prison_ring = None
+        for ring in self.detected_rings:
+            if ring.color == highest_mercinary.ring_color:
+                prison_ring = ring
+
+        if prison_ring is None:
+            rospy.logerr(
+                "Could not find ring with same color as prison ring this should not happen"
+            )
+            return
+
+        # Go greet cylinder
+        self.greet_cylinder(
+            color=hiding_place_cylinder.cylinder_color,
+            current_greet_pose=hiding_place_cylinder.cylinder_greet_pose,
+        )
+
+        aproxx_park_location = self.get_object_greet_pose(
+            prison_ring.ring_pose.position.x,
+            prison_ring.ring_pose.position.y,
+            erosion=6,
+        )
+        self.move_to_goal(
+            aproxx_park_location.position.x,
+            aproxx_park_location.position.y,
+            aproxx_park_location.orientation.x,
+            aproxx_park_location.orientation.y,
+            aproxx_park_location.orientation.z,
+            aproxx_park_location.orientation.w,
+        )
+
+        self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring_close)
+
+        rospy.loginfo(
+            f"POSITION aproxx_park_location: {aproxx_park_location.position.x},"
+            f" {aproxx_park_location.position.y}"
+        )
+        rospy.loginfo(
+            f"POSITION  prison_ring: {prison_ring.ring_pose.position.x},"
+            f" {prison_ring.ring_pose.position.y}"
+        )
+
+        disttance_to_green_ring = self.map_manager.euclidean_distance(
+            prison_ring.ring_pose.position.x,
+            prison_ring.ring_pose.position.y,
+            aproxx_park_location.position.x,
+            aproxx_park_location.position.y,
+        )
+        rospy.loginfo(
+            f"Distance between green ring and approximate parking spot: {disttance_to_green_ring}"
+        )
+
+        for i in range(10):
+            # get robot distance to green ring
+            robot_distance_to_wall = self.laser_manager.distance_to_obstacle
+
+            rospy.loginfo(f"Distance between wall and robot: {robot_distance_to_wall}")
+
+            # if distance is too big, move closer
+            if robot_distance_to_wall > 0.75:
+                rospy.loginfo("Distance to green ring is too big. Will move closer")
+                twist = Twist()
+                twist.linear.x = 0.2
+                self.velocity_publisher.publish(twist)
+                rospy.sleep(0.5)
+                twist.linear.x = 0.0
+                self.velocity_publisher.publish(twist)
+
+            if robot_distance_to_wall < 0.7:
+                rospy.loginfo("Robot is too close wall. Will move back")
+                twist = Twist()
+                twist.linear.x = -0.2
+                self.velocity_publisher.publish(twist)
+                rospy.sleep(0.5)
+                twist.linear.x = 0.0
+                self.velocity_publisher.publish(twist)
+
+            # if distance is just right, stop
+            if 0.7 < robot_distance_to_wall < 0.75:
+                rospy.loginfo("Distance to wall is just right. Will stop")
+                twist = Twist()
+                twist.linear.x = 0.0
+                self.velocity_publisher.publish(twist)
+                break
+
+        # rotate to find the green ring
+        self.rotate(70, angular_speed=0.2)
+
+        self.rotate(140, angular_speed=0.2, clockwise=False)
+
+        # hide camera
+        self.arm_mover.arm_movement_pub.publish(self.arm_mover.retract)
+
+        # go to ground ring that is closest to the green ring
+        with self.detected_ground_rings_lock:
+            closest_ground_ring = None
+            closest_distance = 100000
+            for ground_ring in self.detected_ground_rings:
+                distance = self.map_manager.euclidean_distance(
+                    ground_ring.ring_pose.position.x,
+                    ground_ring.ring_pose.position.y,
+                    prison_ring.ring_pose.position.x,
+                    prison_ring.ring_pose.position.y,
+                )
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_ground_ring = ground_ring
+
+        if closest_ground_ring is None:
+            rospy.loginfo("No ground ring found. ERROR")
+            return
+
+        rospy.loginfo("Found best possible ground ring. Will move to it")
+
+        aproxx_park_location = self.get_object_greet_pose(
+            closest_ground_ring.ring_pose.position.x,
+            closest_ground_ring.ring_pose.position.y,
+            erosion=6,
+        )
+
+        self.move_to_goal(
+            aproxx_park_location.position.x,
+            aproxx_park_location.position.y,
+            aproxx_park_location.orientation.x,
+            aproxx_park_location.orientation.y,
+            aproxx_park_location.orientation.z,
+            aproxx_park_location.orientation.w,
+        )
+
+        rospy.loginfo("Initiating parking procedure")
+
+        dist_traveled = self.move_as_close_to_as_possible(
+            closest_ground_ring.ring_pose.position.x,
+            closest_ground_ring.ring_pose.position.y,
+        )
+
+        rospy.loginfo(f"The distance traveled to the ground ring is {dist_traveled}")
+        rospy.loginfo("I have finished my task")
+
+        # Go park in ring
+
         rospy.loginfo("I have finished my task")
 
 

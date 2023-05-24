@@ -464,6 +464,7 @@ class FaceLocalizer:
         """
 
         # use easyocr to detect text
+        rospy.loginfo(f"Detecting text from image: {rgb_image}")
         result = self.reader.readtext(rgb_image)
         # ([[79, 173], [125, 173], [125, 213], [79, 213]], 'W', 0.9848111271858215),
 
@@ -472,6 +473,26 @@ class FaceLocalizer:
 
         # return the text and the bounding box
         return result
+    
+
+    def get_indentity(self, face_region: np.ndarray) -> str:
+        """
+        Get the identity of the person in the image.
+
+        Args:
+            rgb_image (np.ndarray): The input RGB image
+            confidence_threshold (float): The confidence threshold for the text detection
+
+        Returns:
+            str: The identity of the person in the image
+        """
+
+        #use dlib to exteact vector
+        
+        
+
+
+
 
     def is_poster_callback(self, request: IsPosterRequest) -> IsPosterResponse:
         """
@@ -542,10 +563,20 @@ class FaceLocalizer:
                             face_distance = float(
                                 np.nanmean(depth_image[y_1:y_2, x_1:x_2])
                             )
+
+                            #get indentity based  on facial featurs using dlib 
+
+
+
+
+
+
+
+
                             print("Distance to face", face_distance)
                             depth_timestamp = self.latest_depth_image_msg.header.stamp
 
-                            # shwm face with bounding box
+                            # Show face with bounding box
                             cv2.rectangle(
                                 rgb_converted_image,
                                 (x_1, y_1),
@@ -554,21 +585,24 @@ class FaceLocalizer:
                                 2,
                             )
 
-                            # draw another bounding box that is 0.2 wider than the face and 0.4 taller than the face
+                            # Define enlarged bounding box dimensions
+                            x1_new = max(0, x_1 - int(0.8 * width))
+                            y1_new = max(0, y_1 - int(1.2 * height))
+                            x2_new = min(image_width, x_2 + int(0.8 * width))
+                            y2_new = min(image_height, y_2 + int(1.2 * height))
 
+                            # Draw another bounding box that is 0.2 wider than the face and 0.4 taller than the face
                             cv2.rectangle(
                                 rgb_converted_image,
-                                (x_1 - int(0.8 * width), y_1 - int(1.2 * height)),
-                                (x_2 + int(0.8 * width), y_2 + int(1.2 * height)),
+                                (x1_new, y1_new),
+                                (x2_new, y2_new),
                                 (0, 255, 0),
                                 2,
                             )
 
-                            # crop AND DETECT TEXT
-                            text_region = rgb_image[
-                                y_1 - int(1.2 * height) : y_2 + int(1.2 * height),
-                                x_1 - int(0.8 * width) : x_2 + int(0.8 * width),
-                            ]
+                            # Crop and detect text
+                            text_region = rgb_image[y1_new:y2_new, x1_new:x2_new]
+
                             text = self.detect_text(
                                 text_region, confidence_threshold=0.7
                             )
@@ -1072,7 +1106,7 @@ def main():
     """
     rospy.init_node("face_localizer", anonymous=True)
     face_finder = FaceLocalizer()
-    rospy.Timer(rospy.Duration(0.4), lambda _: face_finder.find_faces())
+    rospy.Timer(rospy.Duration(0.3), lambda _: face_finder.find_faces())
     rospy.spin()
     cv2.destroyAllWindows()
 
