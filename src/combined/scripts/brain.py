@@ -1352,7 +1352,6 @@ class Brain:
         else:
             rospy.loginfo(
                 f"Remembered about he {hiding_place_cylinder.cylinder_color} cylinder that someone"
-                " told me about"
             )
 
         prison_ring = None

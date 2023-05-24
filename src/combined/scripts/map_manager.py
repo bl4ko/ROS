@@ -251,7 +251,7 @@ class MapManager:
                         continue
                     break
 
-        cv2.imwrite("unsearched_space.png", np.flip(unsearched_space, 0))
+        cv2.imwrite("./debug/unsearched_space.png", np.flip(unsearched_space, 0))
         # convert to map coordinates
         toret = []
         for goal in additional_goals:

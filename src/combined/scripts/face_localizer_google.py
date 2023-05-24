@@ -485,7 +485,7 @@ class FaceLocalizer:
             depth_image = self.bridge.imgmsg_to_cv2(depth_image_msg, "32FC1")
 
             # save the image for debugging
-            cv2.imwrite("rgb_image.jpg", rgb_image)
+            cv2.imwrite("./debug/rgb_image.jpg", rgb_image)
 
             # detect face with near range
             with mp.solutions.face_detection.FaceDetection(
@@ -613,9 +613,9 @@ class FaceLocalizer:
                             # to string
                             recognized_text = " ".join(list(recognized_text.keys()))
 
-                            cv2.imshow("face with text", rgb_converted_image)
+                            # cv2.imshow("face with text", rgb_converted_image)
 
-                            cv2.imwrite("text_region.jpg", rgb_converted_image)
+                            cv2.imwrite("./debug/text_region.jpg", rgb_converted_image)
 
                             is_poster = len(recognized_text) > 1
                             print("Is poster: ", is_poster)
