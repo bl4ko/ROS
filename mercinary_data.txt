@@ -1,173 +1,195 @@
 
 Mercinary data:
-Name: joe, Cylinder color: green, Ring color: green, Wanted price: 6Name: amber, Cylinder color: red, Ring color: red, Wanted price: 7000
+Name: joe, Cylinder color: green, Ring color: green, Wanted price: 4Name: amber, Cylinder color: red, Ring color: red, Wanted price: 111Name: john, Cylinder color: yellow, Ring color: blue, Wanted price: 1111111
 Ring data:
 [group_id: 0
 ring_pose: 
   position: 
-    x: 1.9836713632013432
-    y: 1.42121572146112
-    z: 0.29720272740313475
+    x: -0.40184211306963097
+    y: 1.5349863128680683
+    z: 0.2972035210159291
   orientation: 
     x: 0.0
     y: 0.0
     z: 0.0
     w: 1.0
-color: "green", group_id: 1
+color: "blue", group_id: 1
 ring_pose: 
   position: 
-    x: 1.716877998716427
-    y: -0.5344505572310599
-    z: 0.2972028463187346
+    x: -1.8095053770059035
+    y: 0.47280524749493213
+    z: 0.2972018340378365
   orientation: 
     x: 0.0
     y: 0.0
     z: 0.0
     w: 1.0
-color: "blue", group_id: 2
+color: "black", group_id: 2
 ring_pose: 
   position: 
-    x: -0.9969968307719415
-    y: 2.348920896071982
-    z: 0.2972026650262482
+    x: 1.3899368238519307
+    y: 1.4735844898309232
+    z: 0.2972030179156777
   orientation: 
     x: 0.0
     y: 0.0
     z: 0.0
     w: 1.0
-color: "red", group_id: 3
+color: "green", group_id: 3
 ring_pose: 
   position: 
-    x: 2.6068232491969434
-    y: -1.4863369474606243
-    z: 0.29720244456941985
+    x: 0.13144460756822723
+    y: 1.944970936797838
+    z: 0.29720354496758167
   orientation: 
     x: 0.0
     y: 0.0
     z: 0.0
     w: 1.0
-color: "black"]
+color: "red"]
 Face data:
-[x_coord: -1.5811567306518555
-y_coord: 1.582653284072876
+[x_coord: 1.1231204271316528
+y_coord: 2.5500001907348633
 group_id: 1
 rr_x: 0.0
 rr_y: 0.0
-rr_z: 0.9982127547264099
-rr_w: 0.0597606860101223
-normal_x: -0.9809104204177856
-normal_y: 0.14255911111831665
-face_c_x: -2.034799098968506
-face_c_y: 1.6371656656265259
-identity: '', x_coord: 3.500000238418579
-y_coord: -0.9475992918014526
+rr_z: 0.7128675580024719
+rr_w: 0.701298713684082
+normal_x: -0.05094326660037041
+normal_y: 0.9953469634056091
+face_c_x: 1.1160497665405273
+face_c_y: 2.982130527496338
+identity: '', x_coord: 2.5500001907348633
+y_coord: 0.9463905096054077
 group_id: 2
 rr_x: 0.0
 rr_y: 0.0
-rr_z: -0.06429019570350647
-rr_w: 0.9979312419891357
-normal_x: 0.9747958779335022
-normal_y: -0.1636766493320465
-face_c_x: 3.9453632831573486
-face_c_y: -1.0052220821380615
-identity: '', x_coord: -0.049999818205833435
-y_coord: -0.29728439450263977
+rr_z: -0.019201425835490227
+rr_w: 0.9998156428337097
+normal_x: 0.9961997866630554
+normal_y: -0.008429915644228458
+face_c_x: 2.9403297901153564
+face_c_y: 0.9313924312591553
+identity: '', x_coord: 2.0752055644989014
+y_coord: -1.491990566253662
 group_id: 3
 rr_x: 0.0
 rr_y: 0.0
-rr_z: 0.07025137543678284
-rr_w: 0.9975293278694153
-normal_x: 0.9913855791091919
-normal_y: 0.11333172768354416
-face_c_x: 0.38904401659965515
-face_c_y: -0.2351364940404892
-identity: '', x_coord: -0.37364622950553894
-y_coord: -1.5499998331069946
+rr_z: -0.7579619288444519
+rr_w: 0.6522988080978394
+normal_x: -0.09430050849914551
+normal_y: -0.9803293347358704
+face_c_x: 1.9905668497085571
+face_c_y: -2.05364727973938
+identity: '', x_coord: 0.8013125061988831
+y_coord: 0.9268971085548401
 group_id: 4
 rr_x: 0.0
 rr_y: 0.0
-rr_z: -0.7442452907562256
-rr_w: 0.6679064035415649
-normal_x: -0.05523822456598282
-normal_y: -0.9921512007713318
-face_c_x: -0.4183918237686157
-face_c_y: -1.9626528024673462
-identity: '', x_coord: 0.9924132227897644
-y_coord: -1.1499998569488525
+rr_z: -0.998440146446228
+rr_w: 0.055832136422395706
+normal_x: -0.9703403115272522
+normal_y: -0.07404505461454391
+face_c_x: 0.4189721345901489
+face_c_y: 0.8840025067329407
+identity: '', x_coord: -0.5294140577316284
+y_coord: -1.123375654220581
+group_id: 6
+rr_x: 0.0
+rr_y: 0.0
+rr_z: -0.998393714427948
+rr_w: 0.05665694922208786
+normal_x: -0.9876935482025146
+normal_y: -0.033887334167957306
+face_c_x: -0.9388075470924377
+face_c_y: -1.1699904203414917
+identity: '', x_coord: 0.9120843410491943
+y_coord: -0.5225363373756409
+group_id: 8
+rr_x: 0.0
+rr_y: 0.0
+rr_z: -0.7123917937278748
+rr_w: 0.7017819285392761
+normal_x: 0.08779264241456985
+normal_y: -0.9882722496986389
+face_c_x: 0.9090850949287415
+face_c_y: -0.722405195236206
+identity: '', x_coord: 3.529392719268799
+y_coord: -0.969458818435669
 group_id: 5
 rr_x: 0.0
 rr_y: 0.0
-rr_z: 0.6841403245925903
-rr_w: 0.7293504476547241
-normal_x: 0.01030998956412077
-normal_y: 0.9940687417984009
-face_c_x: 1.0180964469909668
-face_c_y: -0.7489175200462341
+rr_z: 0.005610535852611065
+rr_w: 0.9999842643737793
+normal_x: 0.9892613887786865
+normal_y: 0.004595417529344559
+face_c_x: 3.934882879257202
+face_c_y: -0.9649085998535156
 identity: '']
 Cylinder data:
 cylinder_id: 0, color: green, cylinder_greet_pose: position: 
-  x: 1.450000203400851
-  y: 2.450000218302012
+  x: -0.7999998301267617
+  y: -0.19999982118606496
   z: 0
 orientation: 
   x: 0.0
   y: 0.0
-  z: 0.24023593969267318
-  w: 0.9707145271808691 , cylinder_pose: position: 
-  x: 2.0303753475096555
-  y: 2.7560093872201086
-  z: 0.2782366643918936
+  z: -0.930233932369683
+  w: 0.36696707082248675 , cylinder_pose: position: 
+  x: -1.1223094840518433
+  y: -0.5011624677340377
+  z: 0.27821536586588386
 orientation: 
   x: 0.0
   y: 0.0
   z: 0.0
   w: 1.0
 cylinder_id: 1, color: blue, cylinder_greet_pose: position: 
-  x: 0.9000001952052123
-  y: 0.050000182539225335
+  x: -1.4999998405575745
+  y: 1.6000002056360252
   z: 0
 orientation: 
   x: 0.0
   y: 0.0
-  z: -0.7300127016978547
-  w: 0.6834335778697144 , cylinder_pose: position: 
-  x: 0.8632111753436658
-  y: -0.5075761359412729
-  z: 0.27371602492342284
+  z: -0.9959983248548542
+  w: 0.08937190210756601 , cylinder_pose: position: 
+  x: -1.9378562190576853
+  y: 1.5207838225283847
+  z: 0.27229560452327317
 orientation: 
   x: 0.0
   y: 0.0
   z: 0.0
   w: 1.0
-cylinder_id: 2, color: red, cylinder_greet_pose: position: 
-  x: -1.3999998390674584
-  y: 0.050000182539225335
+cylinder_id: 2, color: yellow, cylinder_greet_pose: position: 
+  x: 2.25000021532178
+  y: 2.450000218302012
   z: 0
 orientation: 
   x: 0.0
   y: 0.0
-  z: -0.7087006835611359
-  w: 0.7055092778411767 , cylinder_pose: position: 
-  x: -1.4023514113209796
-  y: -0.47102413429723666
-  z: 0.27304525364837895
+  z: 0.5099935127895894
+  w: 0.8601782471746975 , cylinder_pose: position: 
+  x: 2.423265930089598
+  y: 2.766828188821236
+  z: 0.2719730085449396
 orientation: 
   x: 0.0
   y: 0.0
   z: 0.0
   w: 1.0
-cylinder_id: 3, color: yellow, cylinder_greet_pose: position: 
-  x: 1.8500002093613155
-  y: -1.4499998398125165
+cylinder_id: 3, color: red, cylinder_greet_pose: position: 
+  x: 2.9000002250075347
+  y: -0.34999982342123914
   z: 0
 orientation: 
   x: 0.0
   y: 0.0
-  z: -0.6981719721646019
-  w: 0.715930092455814 , cylinder_pose: position: 
-  x: 1.8625445370586984
-  y: -1.9493815864815758
-  z: 0.2746513160493179
+  z: 0.40819152086628124
+  w: 0.9128963151929534 , cylinder_pose: position: 
+  x: 3.257013548278244
+  y: 0.04905331299560325
+  z: 0.27427654206343066
 orientation: 
   x: 0.0
   y: 0.0

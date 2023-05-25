@@ -727,13 +727,13 @@ class MapManager:
                     break
 
             if len(candidates_reachable) == 0:
-                rospy.loginfo("Searching for backup candidates")
+                # rospy.loginfo("Searching for backup candidates")
                 backup_candidate = candidates[3]
                 x_close, y_close = self.nearest_nonzero_to_point(
                     self.accessible_costmap, backup_candidate[0], backup_candidate[1]
                 )
                 candidates_reachable.append((x_close, y_close))
-                rospy.loginfo(candidates_reachable)
+                #rospy.loginfo(candidates_reachable)
 
             return candidates_reachable
 

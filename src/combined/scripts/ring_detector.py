@@ -165,7 +165,7 @@ class RingDetector:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
 
         # Max distance for the ring to be considered part of the group
-        self.group_max_distance: float = 0.7
+        self.group_max_distance: float = 0.5
 
         # Max distance for the ring detection to be considered valid
         self.max_distance: float = 5.0
