@@ -36,6 +36,7 @@ from combined.msg import (
 from combined.srv import IsPoster
 
 
+# pylint: disable=too-few-public-methods
 class Cylinder:
     """
     Class representing a cylinder.
@@ -1041,82 +1042,81 @@ class Brain:
                 self.rotate(360, angular_speed=0.3)
 
                 with self.detected_faces_lock:
-                    if len(self.detected_faces) > detected_faces_count or True:
-                        rospy.loginfo(
-                            f"I have detected {len(self.detected_faces) - detected_faces_count} new"
-                            " faces during this iteration."
+                    rospy.loginfo(
+                        f"I have detected {len(self.detected_faces) - detected_faces_count} new"
+                        " faces during this iteration."
+                    )
+
+                    new_faces = [
+                        face
+                        for face in self.detected_faces
+                        if face.group_id not in detected_faces_group_ids
+                    ]
+
+                    for new_face in new_faces:
+                        self.move_to_goal(
+                            new_face.x_coord,
+                            new_face.y_coord,
+                            new_face.rr_x,
+                            new_face.rr_y,
+                            new_face.rr_z,
+                            new_face.rr_w,
                         )
 
-                        new_faces = [
-                            face
-                            for face in self.detected_faces
-                            if face.group_id not in detected_faces_group_ids
-                        ]
+                        rospy.sleep(2.0)
 
-                        for new_face in new_faces:
-                            self.move_to_goal(
-                                new_face.x_coord,
-                                new_face.y_coord,
-                                new_face.rr_x,
-                                new_face.rr_y,
-                                new_face.rr_z,
-                                new_face.rr_w,
-                            )
-
-                            rospy.sleep(2.0)
-
-                            # Recognize poster here
+                        # Recognize poster here
+                        response = self.poster_info_proxy(new_face.group_id)
+                        for i in range(10):
+                            if response.status == 1:
+                                break
                             response = self.poster_info_proxy(new_face.group_id)
-                            for i in range(10):
-                                if response.status == 1:
-                                    break
-                                response = self.poster_info_proxy(new_face.group_id)
 
-                                if i % 2 == 0:
-                                    twist = Twist()
-                                    twist.linear.x = -0.2
-                                    self.velocity_publisher.publish(twist)
-                                    rospy.sleep(0.8)
-                                    twist.linear.x = 0.0
-                                    self.velocity_publisher.publish(twist)
+                            if i % 2 == 0:
+                                twist = Twist()
+                                twist.linear.x = -0.2
+                                self.velocity_publisher.publish(twist)
+                                rospy.sleep(0.8)
+                                twist.linear.x = 0.0
+                                self.velocity_publisher.publish(twist)
 
-                                elif i % 3 == 0:
-                                    self.rotate(10, angular_speed=0.3)
-                                elif i % 5 == 0:
-                                    self.rotate(10, angular_speed=0.3, clockwise=False)
-
-                                else:
-                                    twist = Twist()
-                                    twist.linear.x = 0.2
-                                    self.velocity_publisher.publish(twist)
-                                    rospy.sleep(0.8)
-                                    twist.linear.x = 0.0
-                                    self.velocity_publisher.publish(twist)
-
-                                rospy.sleep(0.5)
-
-                            if response.status == 0:
-                                rospy.logwarn("No poster info found this should not happen")
-                                # if poster detection fails continue to next explore
-                                # point and return to the face on the next iteration
-                                rospy.sleep(2)
-                                continue
-
-                            if response.is_poster:
-                                self.poster_manual_input(response.poster_text)
+                            elif i % 3 == 0:
+                                self.rotate(10, angular_speed=0.3)
+                            elif i % 5 == 0:
+                                self.rotate(10, angular_speed=0.3, clockwise=False)
 
                             else:
-                                self.person_manual_dialogue()
+                                twist = Twist()
+                                twist.linear.x = 0.2
+                                self.velocity_publisher.publish(twist)
+                                rospy.sleep(0.8)
+                                twist.linear.x = 0.0
+                                self.velocity_publisher.publish(twist)
 
-                            rospy.loginfo(f"Greeting face id: {new_face.group_id}")
-                            self.sound_player.play_goodbye_sound()
+                            rospy.sleep(0.5)
+
+                        if response.status == 0:
+                            rospy.logwarn("No poster info found this should not happen")
+                            # if poster detection fails continue to next explore
+                            # point and return to the face on the next iteration
                             rospy.sleep(2)
-                            rospy.loginfo(f"Done greeting face id: {new_face.group_id}")
+                            continue
 
-                            if new_face.group_id not in detected_faces_group_ids:
-                                rospy.loginfo(f"Saving face with id: {new_face.group_id}")
-                                detected_faces_group_ids.add(new_face.group_id)
-                                detected_faces_count += 1
+                        if response.is_poster:
+                            self.poster_manual_input(response.poster_text)
+
+                        else:
+                            self.person_manual_dialogue()
+
+                        rospy.loginfo(f"Greeting face id: {new_face.group_id}")
+                        self.sound_player.play_goodbye_sound()
+                        rospy.sleep(2)
+                        rospy.loginfo(f"Done greeting face id: {new_face.group_id}")
+
+                        if new_face.group_id not in detected_faces_group_ids:
+                            rospy.loginfo(f"Saving face with id: {new_face.group_id}")
+                            detected_faces_group_ids.add(new_face.group_id)
+                            detected_faces_count += 1
 
                 with self.detected_rings_lock:
                     if len(self.detected_rings) > detected_rings_count:
@@ -1172,20 +1172,20 @@ class Brain:
             rospy.logerr("I was not able to get all the mercenary info CRITICAL ERROR")
 
         arm_cam_timer.shutdown()
-        with open("./debug/mercenary_data.txt", "w", encoding="utf-8") as f:
-            f.write("\nMercenary data:\n")
+        with open("./debug/mercenary_data.txt", "w", encoding="utf-8") as file:
+            file.write("\nMercenary data:\n")
             for mercenary_info in self.mercenary_infos:
-                f.write(str(mercenary_info))
+                file.write(str(mercenary_info))
 
-            f.write("\nRing data:\n")
-            f.write(str(self.detected_rings))
+            file.write("\nRing data:\n")
+            file.write(str(self.detected_rings))
 
-            f.write("\nFace data:\n")
-            f.write(str(self.detected_faces))
+            file.write("\nFace data:\n")
+            file.write(str(self.detected_faces))
 
-            f.write("\nCylinder data:\n")
+            file.write("\nCylinder data:\n")
             for cylinder in self.cylinder_list:
-                f.write(
+                file.write(
                     f"cylinder_id: {cylinder.cylinder_id}, color: {cylinder.cylinder_color},"
                     f" cylinder_greet_pose: {cylinder.cylinder_greet_pose} , cylinder_pose:"
                     f" {cylinder.cylinder_pose}\n"
@@ -1211,10 +1211,9 @@ class Brain:
             )
             return
 
-        else:
-            rospy.loginfo(
-                f"Remembered about he {hiding_place_cylinder.cylinder_color} cylinder that someone"
-            )
+        rospy.loginfo(
+            f"Remembered about he {hiding_place_cylinder.cylinder_color} cylinder that someone"
+        )
 
         prison_ring = None
         for ring in self.detected_rings:
