@@ -690,41 +690,6 @@ class FaceLocalizer:
                         print("Distance to face", face_distance)
                         depth_timestamp = self.latest_depth_image_msg.header.stamp
 
-                        # #shwm face with bounding box
-                        # cv2.rectangle(
-                        #     rgb_converted_image, (x_1, y_1), (x_2, y_2), (0, 255, 0), 2
-                        # )
-
-                        # #draw another bounding box that is 0.2 wider than the face and 0.4 taller than the face
-
-                        # cv2.rectangle(
-                        #     rgb_converted_image, (x_1 - int(0.8 * width), y_1 - int(1.2 * height)), (x_2 + int(0.8 * width), y_2 + int(1.2 * height)), (0, 255, 0), 2
-                        # )
-
-                        # #crop AND DETECT TEXT
-                        # text_region = rgb_image[y_1 - int(1.2 * height):y_2 + int(1.2 * height), x_1 - int(0.8 * width):x_2 + int(0.8 * width)]
-                        # text = self.detect_text(text_region,confidence_threshold=0.7)
-
-                        # for i in range(len(text)):
-                        #     # ([[79, 173], [125, 173], [125, 213], [79, 213]], 'W', 0.9848111271858215),
-                        #     #get the bounding box of the text
-                        #     text_box = text[i][0]
-
-                        #     #get the text
-                        #     text_string = text[i][1]
-
-                        #     #draw the bounding box of the text on the image and display the text
-                        #     x1, y1 = x_1 - int(0.8 * width) + text_box[0][0], y_1 - int(1.2 * height) + text_box[0][1]
-                        #     x2, y2 = x_1 - int(0.8 * width) + text_box[2][0], y_1 - int(1.2 * height) + text_box[2][1]
-                        #     cv2.rectangle(rgb_converted_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-                        #     cv2.putText(rgb_converted_image, text_string, (int(x_1 - int(0.8 * width)+text_box[0][0]), int(y_1 - int(1.2 * height)+text_box[0][1])), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-                        #     cv2.imshow("face", rgb_converted_image)
-                        #     cv2.waitKey(1)
-
-                        # cv2.imshow("face", rgb_converted_image)
-                        # cv2.waitKey(1)
-
-                        # pylint: disable=R0801 # (same with ground_ring_detector)
                         try:
                             base_position_transform = self.tf_buf.lookup_transform(
                                 "map", "base_link", depth_timestamp

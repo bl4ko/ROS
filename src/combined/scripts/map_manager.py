@@ -197,12 +197,12 @@ class MapManager:
             )
 
             cv2.circle(self.searched_space, (world_x, world_y), 10, 255, -1)
-            self.get_get_aditional_goals()
+            self.get_additional_goals()
 
         except Exception as exception:  # pylint: disable=broad-except
             rospy.logwarn(exception)
 
-    def get_get_aditional_goals(self):
+    def get_additional_goals(self):
         """
         Returns a list of goals from the searched space that have not been searched yet.
         """
