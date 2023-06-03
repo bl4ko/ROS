@@ -4,10 +4,9 @@
 # pylint: disable=too-many-instance-attributes, too-many-arguments, too-many-locals, too-many-statements, too-many-branches, too-many-public-methods, too-many-lines
 
 """
-Module representing brain of the turlte bot. Currently it moves the turtle bot 
-to all of the keypoints and do a 360 degree rotation at each of them.
+Module representing brain of the turtle bot.
 """
-import easyocr
+
 import math
 import signal
 import sys
@@ -32,11 +31,8 @@ from combined.msg import (
     CylinderGreetInstructions,
     UniqueRingCoords,
 )
-from combined.srv import IsPoster, IsPosterResponse, IsPosterRequest
 from dialogue import PosterDialogue, PersonDialogue
-
-from face_localizer_google import FaceGroup
-from ring_detector import RingGroup
+from combined.srv import IsPoster
 
 
 class Cylinder:
@@ -80,7 +76,8 @@ class MercinaryInfo:
     @staticmethod
     def are_complete(mercinary_info_list) -> bool:
         """
-        Returns true if all mercinaries in the list have enough information to complete the task, false otherwise
+        Returns true if all mercenaries in the list have enough
+        information to complete the task, false otherwise
         """
         valid = True
         for mercinary_info in mercinary_info_list:
@@ -1417,33 +1414,9 @@ class Brain:
             )
 
         prison_ring = None
-        prision_rings: List[UniqueRingCoords] = []
         for ring in self.detected_rings:
             if ring.color == highest_mercinary.ring_color:
-                # prision_rings.append(ring)
                 prison_ring = ring
-
-        # # check that the ring is not on the person
-        # for ring in prision_rings.copy():
-        #     for detected_face in self.detected_faces:
-        #         if (
-        #             np.linalg.norm(
-        #                 np.array(
-        #                     float(ring.ring_pose.position.x),
-        #                     float(ring.ring_pose.position.y),
-        #                 )
-        #                 - np.array(
-        #                     float(detected_face.x_coord), float(detected_face.y_coord)
-        #                 )
-        #             )
-        #             < 0.2
-        #         ):
-        #             rospy.loginfo(
-        #                 f"Ring with color {ring.color} is on the person at {detected_face.x_coord, detected_face.y_coord} ring coords {ring.ring_pose.position.x, ring.ring_pose.position.y}"
-        #             )
-        #             prision_rings.remove(ring)
-
-        # prison_ring = prision_rings[0] if len(prision_rings) > 0 else None
 
         if prison_ring is None:
             rospy.logerr(
