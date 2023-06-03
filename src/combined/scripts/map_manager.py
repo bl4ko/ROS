@@ -733,7 +733,7 @@ class MapManager:
                     self.accessible_costmap, backup_candidate[0], backup_candidate[1]
                 )
                 candidates_reachable.append((x_close, y_close))
-                #rospy.loginfo(candidates_reachable)
+                # rospy.loginfo(candidates_reachable)
 
             return candidates_reachable
 

@@ -40,9 +40,7 @@ from ring_detector import RingGroup
 
 
 class Cylinder:
-    def __init__(
-        self, pose: Pose, color: str, cylinder_id: int, greet_pose: Pose
-    ) -> None:
+    def __init__(self, pose: Pose, color: str, cylinder_id: int, greet_pose: Pose) -> None:
         self.cylinder_pose = pose
         self.cylinder_color = color
         self.cylinder_id = cylinder_id
@@ -100,7 +98,9 @@ def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
         frame (FrameType): The current stack frame.
     """
     signal_name = signal.Signals(sig).name
-    frame_info = f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
+    frame_info = (
+        f"File {frame.f_code.co_filename}, line {frame.f_lineno}, in {frame.f_code.co_name}"
+    )
     rospy.loginfo(f"Program interrupted by {signal_name} signal, shutting down.")
     rospy.loginfo(f"Signal received at: {frame_info}")
     rospy.signal_shutdown(f"{signal_name} received")
@@ -123,18 +123,14 @@ class Brain:
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
         rospy.loginfo("Map manager is ready")
-        self.move_base_client = actionlib.SimpleActionClient(
-            "move_base", MoveBaseAction
-        )
+        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
         rospy.loginfo("Waiting for move_base server.")
         self.move_base_client.wait_for_server()
         self.velocity_publisher = rospy.Publisher(
             "mobile_base/commands/velocity", Twist, queue_size=10
         )
         self.init_planner()
-        self.markers_timer = rospy.Timer(
-            rospy.Duration(1), lambda event: self.map_show_markers()
-        )
+        self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: self.map_show_markers())
         self.detected_faces_subscriber = rospy.Subscriber(
             "/detected_faces", DetectedFaces, self.faces_callback
         )
@@ -173,9 +169,7 @@ class Brain:
         self.sound_player = SoundPlayer()
         self.aditional_goals = []
 
-        self.current_goal_pub = rospy.Publisher(
-            "brain_current_goal", Marker, queue_size=10
-        )
+        self.current_goal_pub = rospy.Publisher("brain_current_goal", Marker, queue_size=10)
         self.current_goal_marker_id = 0
 
         # for moving arm
@@ -198,9 +192,7 @@ class Brain:
         self.laser_manager = LaserManager()
 
         self.current_robot_pose = None
-        self.odom_sub = rospy.Subscriber(
-            "/odom", Odometry, self.current_robot_pose_callback
-        )
+        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.current_robot_pose_callback)
 
         # add service
         rospy.loginfo("Waiting for poster info service")
@@ -416,9 +408,7 @@ class Brain:
         x_cylinder = cylinder_pose.position.x
         y_cylinder = cylinder_pose.position.y
 
-        cylinder_greet_pose = self.get_object_greet_pose(
-            x_cylinder, y_cylinder, erosion=7
-        )
+        cylinder_greet_pose = self.get_object_greet_pose(x_cylinder, y_cylinder, erosion=7)
 
         self.cylinder_coords.append(cylinder_pose)
         self.cylinder_colors.append(cylinder_color)
@@ -521,8 +511,7 @@ class Brain:
             if in_sight_vertices:
                 in_sight_vertices.sort(
                     key=lambda vertex: math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2
-                        + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
                     )
                 )
                 nearest_vertex = in_sight_vertices[0]
@@ -532,8 +521,7 @@ class Brain:
 
                 for vertex in unvisited_vertices:
                     distance = math.sqrt(
-                        (current_vertex[0] - vertex[0]) ** 2
-                        + (current_vertex[1] - vertex[1]) ** 2
+                        (current_vertex[0] - vertex[0]) ** 2 + (current_vertex[1] - vertex[1]) ** 2
                     )
                     if distance < nearest_distance:
                         nearest_distance = distance
@@ -558,12 +546,8 @@ class Brain:
         Returns:
             Tuple[float, float, float, float]: quaternion representing the orientation
         """
-        angle = math.atan2(
-            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
-        )
-        angle = math.atan2(
-            second_goal[1] - first_goal[1], second_goal[0] - first_goal[0]
-        )
+        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
+        angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
         quaternion = quaternion_from_euler(0, 0, angle)
         return quaternion
 
@@ -641,9 +625,7 @@ class Brain:
                 rospy.loginfo("Not all faces have been detected. Will start EXPLORING")
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo(
-                        "No new goals found. Will stop i failed to find all faces"
-                    )
+                    rospy.loginfo("No new goals found. Will stop i failed to find all faces")
                     break
                 rospy.loginfo(
                     f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
@@ -720,14 +702,10 @@ class Brain:
                 self.visit_found_cylinders()
 
             if not self.all_cylinders_found:
-                rospy.loginfo(
-                    "Not all cylinders have been detected. Will start EXPLORING"
-                )
+                rospy.loginfo("Not all cylinders have been detected. Will start EXPLORING")
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo(
-                        "No new goals found. Will stop i failed to find all cylinders"
-                    )
+                    rospy.loginfo("No new goals found. Will stop i failed to find all cylinders")
                     break
                 rospy.loginfo(
                     f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
@@ -800,9 +778,7 @@ class Brain:
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
-                    rospy.loginfo(
-                        "No new goals found. Will stop i failed to find all rings"
-                    )
+                    rospy.loginfo("No new goals found. Will stop i failed to find all rings")
                     break
                 rospy.loginfo(
                     f"Found {len(self.aditional_goals )} new goals. Will continue exploring"
@@ -835,9 +811,7 @@ class Brain:
 
             return closest_ring, closest_distance
 
-    def get_robot_distance_to_point(
-        self, position_x: float, position_y: float
-    ) -> float:
+    def get_robot_distance_to_point(self, position_x: float, position_y: float) -> float:
         """
         Returns robot distance to point (x,y)
         """
@@ -930,9 +904,7 @@ class Brain:
             ):
                 rospy.loginfo("Adjusting arm camera")
                 self.arm_pose = "adjust_ring_close"
-                self.arm_mover.arm_movement_pub.publish(
-                    self.arm_mover.extend_ring_close
-                )
+                self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring_close)
 
             elif (
                 self.arm_pose == "adjust_ring_close"
@@ -997,19 +969,11 @@ class Brain:
 
                         detected_rings_count = len(self.detected_rings)
 
-                if (
-                    detected_rings_count >= target_ring_detections
-                    and self.all_cylinders_found
-                ):
+                if detected_rings_count >= target_ring_detections and self.all_cylinders_found:
                     break
 
-            if (
-                detected_rings_count < target_ring_detections
-                or not self.all_cylinders_found
-            ):
-                rospy.loginfo(
-                    "Not all rings or cylinders have been detected. Will start EXPLORING"
-                )
+            if detected_rings_count < target_ring_detections or not self.all_cylinders_found:
+                rospy.loginfo("Not all rings or cylinders have been detected. Will start EXPLORING")
                 # get new goals now that we have explored the map
                 self.aditional_goals = self.map_manager.get_get_aditional_goals()
                 if len(self.aditional_goals) < 1:
@@ -1329,9 +1293,7 @@ class Brain:
                                 rospy.sleep(0.5)
 
                             if response.status == 0:
-                                rospy.logwarn(
-                                    "No poster info found this should not happen"
-                                )
+                                rospy.logwarn("No poster info found this should not happen")
                                 # if poster detection fails continue to next explore point and return to the face on the next iteration
                                 rospy.sleep(2)
                                 continue
@@ -1352,9 +1314,7 @@ class Brain:
                             # if not, add it to the list
 
                             if new_face.group_id not in detected_faces_group_ids:
-                                rospy.loginfo(
-                                    f"Saving face with id: {new_face.group_id}"
-                                )
+                                rospy.loginfo(f"Saving face with id: {new_face.group_id}")
                                 detected_faces_group_ids.add(new_face.group_id)
                                 detected_faces_count += 1
 
@@ -1388,10 +1348,7 @@ class Brain:
 
                 # if the distance between the last goal and the first goal is less than 0.1m remove the goal
                 for goal in self.aditional_goals:
-                    if (
-                        np.linalg.norm(np.array(goal) - np.array(previous_goals[0]))
-                        < 0.1
-                    ):
+                    if np.linalg.norm(np.array(goal) - np.array(previous_goals[0])) < 0.1:
                         rospy.loginfo(
                             f"Removing goal: {goal} becuse it is too close to the"
                             f" goal{previous_goals[0]}"

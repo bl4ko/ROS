@@ -23,9 +23,7 @@ class ArmMover:
         self.arm_movement_pub = rospy.Publisher(
             "/turtlebot_arm/arm_controller/command", JointTrajectory, queue_size=1
         )
-        self.arm_user_command_sub = rospy.Subscriber(
-            "/arm_command", String, self.new_user_command
-        )
+        self.arm_user_command_sub = rospy.Subscriber("/arm_command", String, self.new_user_command)
 
         # Just for controlling wheter to set the new arm position
         self.user_command = None
@@ -40,9 +38,7 @@ class ArmMover:
             "arm_wrist_flex_joint",
         ]
         self.retract.points = [
-            JointTrajectoryPoint(
-                positions=[0, -1.3, 2.2, 1], time_from_start=rospy.Duration(1)
-            )
+            JointTrajectoryPoint(positions=[0, -1.3, 2.2, 1], time_from_start=rospy.Duration(1))
         ]
 
         self.extend = JointTrajectory()
@@ -55,9 +51,7 @@ class ArmMover:
         # self.extend.points = [JointTrajectoryPoint(positions=[0,0.3,1,0],
         # self.extend.points = [JointTrajectoryPoint(positions=[0.35,0.7,0.75,0],
         self.extend.points = [
-            JointTrajectoryPoint(
-                positions=[0.35, 1.1, 0.5, 0], time_from_start=rospy.Duration(1)
-            )
+            JointTrajectoryPoint(positions=[0.35, 1.1, 0.5, 0], time_from_start=rospy.Duration(1))
         ]
 
         self.extend_ring = JointTrajectory()
@@ -70,9 +64,7 @@ class ArmMover:
         # self.extend_ring.points = [JointTrajectoryPoint(positions=[0,-1.3,2.7,-0.5],
         #                                             time_from_start = rospy.Duration(1))]
         self.extend_ring.points = [
-            JointTrajectoryPoint(
-                positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(1)
-            )
+            JointTrajectoryPoint(positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(1))
         ]
 
         self.extend_ring_close = JointTrajectory()
@@ -85,9 +77,7 @@ class ArmMover:
         # self.extend_ring.points = [JointTrajectoryPoint(positions=[0,-1.3,2.7,-0.5],
         #                                             time_from_start = rospy.Duration(1))]
         self.extend_ring_close.points = [
-            JointTrajectoryPoint(
-                positions=[0, 1.2, 0, 0.3], time_from_start=rospy.Duration(1)
-            )
+            JointTrajectoryPoint(positions=[0, 1.2, 0, 0.3], time_from_start=rospy.Duration(1))
         ]
         self.wave1 = JointTrajectory()
         self.wave1.joint_names = [
@@ -103,9 +93,7 @@ class ArmMover:
             JointTrajectoryPoint(
                 positions=[-0.25, -0.45, 0, 1.15], time_from_start=rospy.Duration(2)
             ),
-            JointTrajectoryPoint(
-                positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(3)
-            ),
+            JointTrajectoryPoint(positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(3)),
         ]
 
         self.wave2 = JointTrajectory()
@@ -122,9 +110,7 @@ class ArmMover:
             JointTrajectoryPoint(
                 positions=[0.25, -0.45, 0, 1.15], time_from_start=rospy.Duration(2)
             ),
-            JointTrajectoryPoint(
-                positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(3)
-            ),
+            JointTrajectoryPoint(positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(3)),
         ]
 
     def new_user_command(self, data: String) -> None:
