@@ -436,38 +436,20 @@ class FaceLocalizer:
         Returns:
             List[str]: A list of the detected texts
         """
-
-        # use easyocr to detect text
         rospy.loginfo(f"Detecting text from image: {rgb_image}")
         result = self.reader.readtext(rgb_image)
         # ([[79, 173], [125, 173], [125, 213], [79, 213]], 'W', 0.9848111271858215),
-
         # filter out the text with low confidence
         result = [x for x in result if x[2] > confidence_threshold]
-
         # return the text and the bounding box
         return result
 
-    def get_indentity(self, face_region: np.ndarray) -> str:
-        """
-        Get the identity of the person in the image.
-
-        Args:
-            rgb_image (np.ndarray): The input RGB image
-            confidence_threshold (float): The confidence threshold for the text detection
-
-        Returns:
-            str: The identity of the person in the image
-        """
-
-        # use dlib to exteact vector
-
+    # pylint: disable=too-many-statements
     def is_poster_callback(self, request: IsPosterRequest) -> IsPosterResponse:
         """
-        Callback for the is_poster service. This is used when the robot is close to face or poster to detect and
-        determine if it is a poster or not. it will return true if it is a poster and false if it is not a poster. and the
-        text of the poster. IT SHOULD BE CALLED WHEN THE ROBOT IS CLOSE TO THE POSTER OR FACE.
-
+        Callback for the is_poster service. This is used when the robot is close to face
+        or poster to detect and determine if it is a poster or not. it will return true
+        if it is a poster and false if it is not a poster and the text of the poster.
         Args:
             request (IsPosterRequest): The service request.
 
@@ -503,7 +485,7 @@ class FaceLocalizer:
                 )
 
                 if detection_results.detections is None:
-                    rospy.loginfo(f"Number of detections is None")
+                    rospy.loginfo("Number of detections is None")
 
                 if detection_results.detections:
                     for detection in detection_results.detections:
@@ -526,13 +508,9 @@ class FaceLocalizer:
                                 img_x + width,
                                 img_y + height,
                             )
-                            face_region = rgb_image[y_1:y_2, x_1:x_2]
                             face_distance = float(np.nanmean(depth_image[y_1:y_2, x_1:x_2]))
 
-                            # get indentity based  on facial featurs using dlib
-
-                            print("Distance to face", face_distance)
-                            depth_timestamp = self.latest_depth_image_msg.header.stamp
+                            rospy.loginfo("Distance to face", face_distance)
 
                             # Show face with bounding box
                             cv2.rectangle(
@@ -549,7 +527,8 @@ class FaceLocalizer:
                             x2_new = min(image_width, x_2 + int(0.8 * width))
                             y2_new = min(image_height, y_2 + int(1.2 * height))
 
-                            # Draw another bounding box that is 0.2 wider than the face and 0.4 taller than the face
+                            # Draw another bounding box that is 0.2 wider than the face
+                            # and 0.4 taller than the face
                             cv2.rectangle(
                                 rgb_converted_image,
                                 (x1_new, y1_new),
@@ -565,29 +544,26 @@ class FaceLocalizer:
 
                             recognized_text = {}
 
-                            for i in range(len(text)):
-                                # ([[79, 173], [125, 173], [125, 213], [79, 213]], 'W', 0.9848111271858215),
-                                # get the bounding box of the text
-                                text_box = text[i][0]
-
-                                # get the text
-                                text_string = text[i][1]
+                            for _, text_item in enumerate(text):
+                                text_box = text_item[0]
+                                text_string = text_item[1]
 
                                 recognized_text[text_string] = text_box
 
-                                # draw the bounding box of the text on the image and display the text
-                                x1, y1 = (
+                                # draw the bounding box of the text on
+                                # the image and display the text
+                                x_1, y_1 = (
                                     x_1 - int(0.8 * width) + text_box[0][0],
                                     y_1 - int(1.2 * height) + text_box[0][1],
                                 )
-                                x2, y2 = (
+                                x_2, y_2 = (
                                     x_1 - int(0.8 * width) + text_box[2][0],
                                     y_1 - int(1.2 * height) + text_box[2][1],
                                 )
                                 cv2.rectangle(
                                     rgb_converted_image,
-                                    (int(x1), int(y1)),
-                                    (int(x2), int(y2)),
+                                    (int(x_1), int(y_1)),
+                                    (int(x_2), int(y_2)),
                                     (0, 255, 0),
                                     2,
                                 )
@@ -605,7 +581,6 @@ class FaceLocalizer:
                                     cv2.LINE_AA,
                                 )
 
-                            # sort so the text is left to right top to bottom
                             recognized_text = dict(
                                 sorted(
                                     recognized_text.items(),
@@ -613,22 +588,14 @@ class FaceLocalizer:
                                 )
                             )
 
-                            # to string
                             recognized_text = " ".join(list(recognized_text.keys()))
-
-                            # cv2.imshow("face with text", rgb_converted_image)
 
                             cv2.imwrite("./debug/text_region.jpg", rgb_converted_image)
 
                             is_poster = len(recognized_text) > 1
-                            print("Is poster: ", is_poster)
-                            print("Recognized text: ", recognized_text)
+                            rospy.loginfo(f"Is poster: {is_poster}")
+                            rospy.loginfo(f"Recognized text: {recognized_text}")
 
-                            # face_pose = self.get_pose(
-                            #     (x_1, x_2, y_1, y_2), face_distance, depth_timestamp
-                            # )
-
-                            # based on group id and text, determine if the poster is the target poster
                             updated_face_group = self.detected_faces_tracker.update_poster_data(
                                 is_poster=is_poster,
                                 poster_text=recognized_text,
@@ -638,8 +605,7 @@ class FaceLocalizer:
                             if updated_face_group:
                                 return IsPosterResponse(is_poster, recognized_text, 1)
 
-                            else:
-                                return IsPosterResponse(False, "group_id not found", 0)
+                            return IsPosterResponse(False, "group_id not found", 0)
                 else:
                     return IsPosterResponse(False, "no face detected", 0)
 
@@ -732,7 +698,7 @@ class FaceLocalizer:
                             left_pose_y = pose_left.position.y
                             left_pose_z = pose_left.position.z
 
-                            rigth_pose_x = pose_right.position.x
+                            right_pose_x = pose_right.position.x
                             right_pose_y = pose_right.position.y
                             right_pose_z = pose_right.position.z
 
@@ -744,7 +710,7 @@ class FaceLocalizer:
                                     math.isnan(left_pose_x)
                                     or math.isnan(left_pose_y)
                                     or math.isnan(left_pose_z)
-                                    or math.isnan(rigth_pose_x)
+                                    or math.isnan(right_pose_x)
                                     or math.isnan(right_pose_y)
                                     or math.isnan(right_pose_z)
                                     or math.isnan(face_pose.position.x)
@@ -1012,7 +978,7 @@ class FaceLocalizer:
 
 def main():
     """
-    Initialises the face_localizer node and calls every second the face_finder class to find_faces.
+    Initializes the face_localizer node and calls every second the face_finder class to find_faces.
     """
     rospy.init_node("face_localizer", anonymous=True)
     face_finder = FaceLocalizer()
