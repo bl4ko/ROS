@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # TODO: # pylint: disable=fixme
-# pylint: disable=too-many-instance-attributes, disable=too-many-arguments, disable=too-many-locals. disable=too-few-public-methods
+# pylint: disable=too-many-instance-attributes, disable=too-many-arguments, disable=too-many-locals. disable=too-few-public-methods, disable=duplicate-code
 
 """
 Module for the face localizer node, which uses Google's 

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # TODO: # pylint: disable=fixme
-# pylint: disable=too-many-instance-attributes, disable=too-many-locals, disable=too-many-arguments, disable=too-many-locals
+# pylint: disable=too-many-instance-attributes, disable=too-many-locals, disable=too-many-arguments, disable=too-many-locals, disable=duplicate-code
 
 """
 This script is used for detecting rings in images.
