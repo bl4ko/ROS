@@ -436,9 +436,7 @@ class FaceLocalizer:
         Returns:
             List[str]: A list of the detected texts
         """
-        rospy.loginfo(f"Detecting text from image: {rgb_image}")
         result = self.reader.readtext(rgb_image)
-        # ([[79, 173], [125, 173], [125, 213], [79, 213]], 'W', 0.9848111271858215),
         # filter out the text with low confidence
         result = [x for x in result if x[2] > confidence_threshold]
         # return the text and the bounding box
@@ -491,7 +489,7 @@ class FaceLocalizer:
                     for detection in detection_results.detections:
                         confidence_score = detection.score[0]
                         if confidence_score > 0.65:
-                            print("Face detected with high confidence: ", confidence_score)
+                            rospy.loginfo(f"Face detected with high confidence: {confidence_score}")
 
                             bounding_box = detection.location_data.relative_bounding_box
                             image_height, image_width, _ = rgb_converted_image.shape
@@ -510,7 +508,7 @@ class FaceLocalizer:
                             )
                             face_distance = float(np.nanmean(depth_image[y_1:y_2, x_1:x_2]))
 
-                            rospy.loginfo("Distance to face", face_distance)
+                            rospy.loginfo(f"Distance to face {str(face_distance)}")
 
                             # Show face with bounding box
                             cv2.rectangle(
@@ -593,7 +591,7 @@ class FaceLocalizer:
                             cv2.imwrite("./debug/text_region.jpg", rgb_converted_image)
 
                             is_poster = len(recognized_text) > 1
-                            rospy.loginfo(f"Is poster: {is_poster}")
+                            rospy.loginfo(f"Is poster: {str(is_poster)}")
                             rospy.loginfo(f"Recognized text: {recognized_text}")
 
                             updated_face_group = self.detected_faces_tracker.update_poster_data(
