@@ -3,6 +3,8 @@
 .Trash-*
 venv
 unsearched_space.png
+debug
+project-words.txt
 
 # Created by https://www.toptal.com/developers/gitignore/api/ros
 # Edit at https://www.toptal.com/developers/gitignore?templates=ros

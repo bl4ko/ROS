@@ -197,12 +197,12 @@ class MapManager:
             )
 
             cv2.circle(self.searched_space, (world_x, world_y), 10, 255, -1)
-            self.get_get_aditional_goals()
+            self.get_additional_goals()
 
         except Exception as exception:  # pylint: disable=broad-except
             rospy.logwarn(exception)
 
-    def get_get_aditional_goals(self):
+    def get_additional_goals(self):
         """
         Returns a list of goals from the searched space that have not been searched yet.
         """
@@ -251,7 +251,7 @@ class MapManager:
                         continue
                     break
 
-        cv2.imwrite("unsearched_space.png", np.flip(unsearched_space, 0))
+        cv2.imwrite("./debug/unsearched_space.png", np.flip(unsearched_space, 0))
         # convert to map coordinates
         toret = []
         for goal in additional_goals:
@@ -727,13 +727,13 @@ class MapManager:
                     break
 
             if len(candidates_reachable) == 0:
-                rospy.loginfo("Searching for backup candidates")
+                # rospy.loginfo("Searching for backup candidates")
                 backup_candidate = candidates[3]
                 x_close, y_close = self.nearest_nonzero_to_point(
                     self.accessible_costmap, backup_candidate[0], backup_candidate[1]
                 )
                 candidates_reachable.append((x_close, y_close))
-                rospy.loginfo(candidates_reachable)
+                # rospy.loginfo(candidates_reachable)
 
             return candidates_reachable
 
@@ -759,7 +759,7 @@ class MapManager:
             # Wall or close to wall
             return False
 
-        rospy.logwarn(f"Unknown cost value: {cost}")
+        # rospy.logwarn(f"Unknown cost value: {cost}")
         # You can choose to treat unknown values as obstacles or not:
         return False  # Treat unknown cost values as obstacles
         # return True  # Treat unknown cost values as free space

@@ -21,6 +21,10 @@ add_message_files(DIRECTORY msg
   DetectedRings.msg
   CylinderGreetInstructions.msg
 )
+add_service_files(
+  FILES
+  IsPoster.srv
+)
 
 generate_messages(DEPENDENCIES std_msgs geometry_msgs sensor_msgs)
 

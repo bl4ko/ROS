@@ -79,6 +79,39 @@ class ArmMover:
         self.extend_ring_close.points = [
             JointTrajectoryPoint(positions=[0, 1.2, 0, 0.3], time_from_start=rospy.Duration(1))
         ]
+        self.wave1 = JointTrajectory()
+        self.wave1.joint_names = [
+            "arm_shoulder_pan_joint",
+            "arm_shoulder_lift_joint",
+            "arm_elbow_flex_joint",
+            "arm_wrist_flex_joint",
+        ]
+        self.wave1.points = [
+            JointTrajectoryPoint(
+                positions=[-0.5, -0.45, 0, 1.15], time_from_start=rospy.Duration(1)
+            ),
+            JointTrajectoryPoint(
+                positions=[-0.25, -0.45, 0, 1.15], time_from_start=rospy.Duration(2)
+            ),
+            JointTrajectoryPoint(positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(3)),
+        ]
+
+        self.wave2 = JointTrajectory()
+        self.wave2.joint_names = [
+            "arm_shoulder_pan_joint",
+            "arm_shoulder_lift_joint",
+            "arm_elbow_flex_joint",
+            "arm_wrist_flex_joint",
+        ]
+        self.wave2.points = [
+            JointTrajectoryPoint(
+                positions=[0.5, -0.45, 0, 1.15], time_from_start=rospy.Duration(1)
+            ),
+            JointTrajectoryPoint(
+                positions=[0.25, -0.45, 0, 1.15], time_from_start=rospy.Duration(2)
+            ),
+            JointTrajectoryPoint(positions=[0, -0.45, 0, 1.15], time_from_start=rospy.Duration(3)),
+        ]
 
     def new_user_command(self, data: String) -> None:
         """
@@ -111,7 +144,10 @@ if __name__ == "__main__":
     am = ArmMover()
     time.sleep(0.5)
     # am.arm_movement_pub.publish(am.retract)
-    am.arm_movement_pub.publish(am.extend)
+    # print('Retracted arm!')
+    for wave in [am.wave1, am.wave2]:
+        am.arm_movement_pub.publish(wave)
+        rospy.sleep(wave.points[-1].time_from_start.to_sec())
     # am.arm_movement_pub.publish(am.extend_ring)
     # print('Retracted arm!')
 

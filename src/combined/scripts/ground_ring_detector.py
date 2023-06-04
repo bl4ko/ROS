@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # TODO: # pylint: disable=fixme
-# pylint: disable=too-many-instance-attributes, disable=too-many-locals, disable=too-many-arguments, disable=too-many-locals
+# pylint: disable=too-many-instance-attributes, disable=too-many-locals, disable=too-many-arguments, disable=too-many-locals, disable=duplicate-code
 
 """
 This script is used for detecting rings in images.
@@ -524,7 +524,7 @@ class RingDetector:
                 marker.action = Marker.ADD
                 marker.lifetime = rospy.Duration.from_sec(10)
                 marker.scale = Vector3(0.1, 0.1, 0.1)
-                marker.color = ColorRGBA(r=0, g=0, b=1, a=1)
+                marker.color = ColorRGBA(r=0.6, g=0.6, b=0.6, a=1)
                 marker.id = ring_group.group_id
                 markers.markers.append(marker)
 

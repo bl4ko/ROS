@@ -24,3 +24,9 @@ class SoundPlayer:
         Says the given text.
         """
         self.sound_client.say(text)
+
+    def play_goodbye_sound(self):
+        """
+        Plays a goodbye sound.
+        """
+        self.sound_client.say("Goodbye, see you next time!")

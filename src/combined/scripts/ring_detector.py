@@ -157,7 +157,7 @@ class RingDetector:
         time_synchronizer = message_filters.TimeSynchronizer([image_sub, depth_sub], 100)
         time_synchronizer.registerCallback(self.image_callback)
 
-        # Publiser for the visualization markers
+        # Publisher for the visualization markers
         self.markers_pub = rospy.Publisher("ring_markers", MarkerArray, queue_size=1000)
 
         # Object we use for transforming between coordinate frames
@@ -165,7 +165,7 @@ class RingDetector:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
 
         # Max distance for the ring to be considered part of the group
-        self.group_max_distance: float = 0.7
+        self.group_max_distance: float = 0.5
 
         # Max distance for the ring detection to be considered valid
         self.max_distance: float = 5.0
@@ -449,8 +449,6 @@ class RingDetector:
         ring_color: ColorRGBA = self.get_ring_color(ring_img=ring_img)
         new_ring = DetectedRing(pose=ring_pose, color=ring_color)
 
-        # For each group compare if avg_group pose is smaller than self.group_max_dsitance
-        # from the new ring. In that case that means that the new ring is part of the group
         for i, ring_group in enumerate(self.ring_groups):
             if (
                 np.sqrt(

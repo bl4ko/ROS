@@ -1,6 +1,6 @@
 <launch>
     <!-- rins_world.launch -->
-    <arg name="world_file" value="$(find combined)/worlds/rins_task2.world"/>
+    <arg name="world_file" value="$(find combined)/worlds/final.world"/>
     <arg name="base" value="kobuki"/>
     <!-- create, roomba -->
     <arg name="battery" value="$(optenv TURTLEBOT_BATTERY /proc/acpi/battery/BAT0)"/>
@@ -8,7 +8,7 @@
     <arg name="gui" default="true"/>
     <arg name="stacks" value="hexagons"/>
     <!-- circles, hexagons -->
-    <arg name="arm_type"  default="$(optenv TURTLEBOT_ARM1 turtlebot)"/>
+    <arg name="arm_type" default="$(optenv TURTLEBOT_ARM1 turtlebot)"/>
 
     <arg name="3d_sensor" value="kinect"/>
     <!-- kinect, asus_xtion_pro -->
@@ -22,7 +22,7 @@
         <arg name="gui" value="$(arg gui)" />
         <arg name="paused" value="false" />
         <arg name="verbose" value="true" />
-        
+
         <arg name="world_name" value="$(arg world_file)"/>
     </include>
 
@@ -76,6 +76,6 @@
     <!-- Sound play node -->
     <node name="soundplay_node" pkg="sound_play" type="soundplay_node.py" />
 
-    
+
 
 </launch>
