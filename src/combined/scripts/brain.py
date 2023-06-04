@@ -27,6 +27,7 @@ from laser_manager import LaserManager
 from nav_msgs.msg import Odometry
 
 from dialogue import PosterDialogue, PersonDialogue
+from ring_manager import RingManager
 from combined.msg import (
     DetectedFaces,
     DetectedRings,
@@ -145,12 +146,12 @@ class Brain:
             rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
         )
 
-        self.detected_rings_subscriber = rospy.Subscriber(
-            "/detected_ring_coords", DetectedRings, self.ring_callback
-        )
         self.detected_ground_rings_subscriber = rospy.Subscriber(
             "/detected_ground_ring_coords", DetectedRings, self.ground_ring_callback
         )
+
+        # For managing rings
+        self.ring_manager = RingManager()
 
         # for cylinder handling
         rospy.Subscriber(
@@ -169,8 +170,6 @@ class Brain:
         self.is_ready = False
         self.detected_faces = []
         self.detected_faces_lock = threading.Lock()
-        self.detected_rings: List[UniqueRingCoords] = []
-        self.detected_rings_lock = threading.Lock()
         self.detected_ground_rings: List[UniqueRingCoords] = []
         self.detected_ground_rings_lock = threading.Lock()
         self.sound_player = SoundPlayer()
@@ -185,11 +184,6 @@ class Brain:
         self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
 
         self.arm_pose = "extend_ring"
-
-        # /green_ring_coords
-        self.green_ring_coords_pub = rospy.Publisher(
-            "green_ring_coords", UniqueRingCoords, queue_size=10
-        )
 
         # /parking subscribe
         rospy.Subscriber("parking_spot", Pose, self.parking_callback)
@@ -261,17 +255,6 @@ class Brain:
 
             # Convert the updated dictionary back to a list
             self.detected_faces = list(existing_faces_dict.values())
-
-    def ring_callback(self, msg: DetectedRings) -> None:
-        """
-        Callback function for the ring subscriber. Stores
-        detected rings in a thread-safe manner.
-
-        Args:
-            msg (DetectedRings): The message containing the detected rings.
-        """
-        with self.detected_rings_lock:
-            self.detected_rings = msg.array
 
     def ground_ring_callback(self, msg: DetectedRings):
         """
@@ -599,26 +582,6 @@ class Brain:
         self.sound_player.say(color)
         rospy.sleep(1)
 
-    def get_closest_ring(self) -> Tuple[UniqueRingCoords, float]:
-        """
-        get closest ring to current position
-        """
-        with self.detected_rings_lock:
-            closest_ring = None
-            closest_distance = float("inf")
-            for ring in self.detected_rings:
-                distance = self.map_manager.euclidean_distance(
-                    self.current_robot_pose.position.x,
-                    self.current_robot_pose.position.y,
-                    ring.ring_pose.position.x,
-                    ring.ring_pose.position.y,
-                )
-                if distance < closest_distance:
-                    closest_distance = distance
-                    closest_ring = ring
-
-            return closest_ring, closest_distance
-
     def get_robot_distance_to_point(self, position_x: float, position_y: float) -> float:
         """
         Returns robot distance to point (x,y)
@@ -700,7 +663,9 @@ class Brain:
         """
         auto adjust arm camera
         """
-        closest_ring, closest_distance = self.get_closest_ring()
+        closest_ring, closest_distance = self.ring_manager.get_closest_ring(
+            self.current_robot_pose.position.x, self.current_robot_pose.position.y
+        )
 
         if closest_ring is not None:
             distance_to_wall = self.laser_manager.distance_to_obstacle
@@ -897,16 +862,17 @@ class Brain:
                             detected_faces_group_ids.add(new_face.group_id)
                             detected_faces_count += 1
 
-                with self.detected_rings_lock:
-                    if len(self.detected_rings) > detected_rings_count:
+                with self.ring_manager.detected_rings_lock:
+                    if self.ring_manager.detection_count() > detected_rings_count:
                         rospy.loginfo(
-                            f"I have detected {len(self.detected_rings) - detected_rings_count} new"
+                            "I have detected"
+                            f" {self.ring_manager.detection_count() - detected_rings_count} new"
                             " rings during this iteration."
                         )
 
                         new_rings: List[UniqueRingCoords] = [
                             ring
-                            for ring in self.detected_rings
+                            for ring in self.ring_manager.detected_rings
                             if ring.group_id not in detected_rings_group_ids
                         ]
 
@@ -916,7 +882,7 @@ class Brain:
                             )
                             detected_rings_group_ids.add(new_ring.group_id)
 
-                        detected_rings_count = len(self.detected_rings)
+                        detected_rings_count = self.ring_manager.detection_count()
 
             if not MercenaryInfo.are_complete(self.mercenary_infos):
                 previous_goals = goals
@@ -957,7 +923,7 @@ class Brain:
                 file.write(str(mercenary_info))
 
             file.write("\nRing data:\n")
-            file.write(str(self.detected_rings))
+            file.write(str(self.ring_manager.detected_rings))
 
             file.write("\nFace data:\n")
             file.write(str(self.detected_faces))
@@ -995,7 +961,7 @@ class Brain:
         )
 
         prison_ring = None
-        for ring in self.detected_rings:
+        for ring in self.ring_manager.detected_rings:
             if ring.color == highest_mercenary.ring_color:
                 prison_ring = ring
 

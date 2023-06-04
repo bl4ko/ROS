@@ -976,9 +976,9 @@ class FaceLocalizer:
 
 def main():
     """
-    Initializes the face_localizer node and calls every second the face_finder class to find_faces.
+    Initializes the face_detector node and calls every second the face_finder class to find_faces.
     """
-    rospy.init_node("face_localizer", anonymous=True)
+    rospy.init_node("face_detector", anonymous=True)
     face_finder = FaceLocalizer()
     rospy.Timer(rospy.Duration(0.3), lambda _: face_finder.find_faces())
     rospy.spin()
