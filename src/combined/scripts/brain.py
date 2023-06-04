@@ -723,227 +723,6 @@ class Brain:
                 self.arm_pose = "extend_ring"
                 self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
 
-    def think_rings_cylinders(self):
-        """
-        search and greet cylinders and search rings
-        """
-
-        detected_rings_count = 0
-        target_ring_detections = 4
-        detected_rings_group_ids = set()
-
-        goals = self.map_manager.get_goals()
-        arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
-
-        while not rospy.is_shutdown():
-            optimized_path = self.nearest_neighbor_path(goals, goals[0])
-
-            for i, goal in enumerate(optimized_path):
-                rospy.loginfo(
-                    f"Moving to goal {i + 1}/{len(optimized_path)}. rings detected:"
-                    f" {len(self.detected_rings)}"
-                )
-
-                # At each goal adjust orientation to the next goal
-                quaternion = (0, 0, 0, 1)
-                if i < len(optimized_path) - 1:
-                    next_goal = optimized_path[i + 1]
-                    quaternion = self.orientation_between_points(goal, next_goal)
-
-                self.move_to_goal(goal[0], goal[1], *quaternion)
-
-                self.rotate(360, angular_speed=0.7)
-
-                self.visit_found_cylinders()
-
-                with self.detected_rings_lock:
-                    if len(self.detected_rings) > detected_rings_count:
-                        rospy.loginfo(
-                            f"I have detected {len(self.detected_rings) - detected_rings_count} new"
-                            " rings during this iteration."
-                        )
-
-                        new_rings: List[UniqueRingCoords] = [
-                            ring
-                            for ring in self.detected_rings
-                            if ring.group_id not in detected_rings_group_ids
-                        ]
-
-                        for new_ring in new_rings:
-                            rospy.loginfo(
-                                f"Saving ring with id: {new_ring.group_id}, color: {new_ring.color}"
-                            )
-                            detected_rings_group_ids.add(new_ring.group_id)
-
-                        detected_rings_count = len(self.detected_rings)
-
-                if detected_rings_count >= target_ring_detections and self.all_cylinders_found:
-                    break
-
-            if detected_rings_count < target_ring_detections or not self.all_cylinders_found:
-                rospy.loginfo("Not all rings or cylinders have been detected. Will start EXPLORING")
-                # get new goals now that we have explored the map
-                self.additional_goals = self.map_manager.get_additional_goals()
-                if len(self.additional_goals) < 1:
-                    rospy.loginfo(
-                        "No new goals found. Will stop i FAILED to find all rings or cylinders"
-                    )
-                    break
-                rospy.loginfo(
-                    f"Found {len(self.additional_goals )} new goals. Will continue exploring"
-                )
-                goals = self.additional_goals
-
-            else:
-                rospy.loginfo("ALL RINGS AND CYLINDERS have been detected. Will stop")
-
-                with self.detected_rings_lock:
-                    for ring in self.detected_rings:
-                        rospy.loginfo(f"Ring: {ring.group_id}, {ring.color}")
-                break
-
-        green_ring: UniqueRingCoords = None
-        with self.detected_rings_lock:
-            for ring in self.detected_rings:
-                if ring.color == "green":
-                    green_ring = ring
-                    break
-
-        if green_ring is None:
-            rospy.loginfo("No green ring found. ERROR")
-            return
-
-        self.green_ring_coords_pub.publish(green_ring)
-
-        # compute approximate location to park
-        aprox_park_location = self.get_object_greet_pose(
-            green_ring.ring_pose.position.x, green_ring.ring_pose.position.y, erosion=6
-        )
-        self.move_to_goal(
-            aprox_park_location.position.x,
-            aprox_park_location.position.y,
-            aprox_park_location.orientation.x,
-            aprox_park_location.orientation.y,
-            aprox_park_location.orientation.z,
-            aprox_park_location.orientation.w,
-        )
-
-        arm_cam_timer.shutdown()
-
-        self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring_close)
-
-        rospy.loginfo(
-            f"POSITION aprox_park_location: {aprox_park_location.position.x},"
-            f" {aprox_park_location.position.y}"
-        )
-        rospy.loginfo(
-            f"POSITION green_ring: {green_ring.ring_pose.position.x},"
-            f" {green_ring.ring_pose.position.y}"
-        )
-
-        distance_to_green_ring = self.map_manager.euclidean_distance(
-            green_ring.ring_pose.position.x,
-            green_ring.ring_pose.position.y,
-            aprox_park_location.position.x,
-            aprox_park_location.position.y,
-        )
-        rospy.loginfo(
-            f"Distance between green ring and approximate parking spot: {distance_to_green_ring}"
-        )
-
-        for i in range(10):
-            # get robot distance to green ring
-            robot_distance_to_wall = self.laser_manager.distance_to_obstacle
-
-            rospy.loginfo(f"Distance between wall and robot: {robot_distance_to_wall}")
-
-            # if distance is too big, move closer
-            if robot_distance_to_wall > 0.75:
-                rospy.loginfo("Distance to green ring is too big. Will move closer")
-                twist = Twist()
-                twist.linear.x = 0.2
-                self.velocity_publisher.publish(twist)
-                rospy.sleep(0.5)
-                twist.linear.x = 0.0
-                self.velocity_publisher.publish(twist)
-
-            if robot_distance_to_wall < 0.7:
-                rospy.loginfo("Robot is too close wall. Will move back")
-                twist = Twist()
-                twist.linear.x = -0.2
-                self.velocity_publisher.publish(twist)
-                rospy.sleep(0.5)
-                twist.linear.x = 0.0
-                self.velocity_publisher.publish(twist)
-
-            # if distance is just right, stop
-            if 0.7 < robot_distance_to_wall < 0.75:
-                rospy.loginfo("Distance to wall is just right. Will stop")
-                twist = Twist()
-                twist.linear.x = 0.0
-                self.velocity_publisher.publish(twist)
-                break
-
-        # rotate to find the green ring
-        self.rotate(70, angular_speed=0.2)
-
-        self.rotate(140, angular_speed=0.2, clockwise=False)
-
-        # hide camera
-        self.arm_mover.arm_movement_pub.publish(self.arm_mover.retract)
-
-        # go to ground ring that is closest to the green ring
-        with self.detected_ground_rings_lock:
-            closest_ground_ring = None
-            closest_distance = 100000
-            for ground_ring in self.detected_ground_rings:
-                distance = self.map_manager.euclidean_distance(
-                    ground_ring.ring_pose.position.x,
-                    ground_ring.ring_pose.position.y,
-                    green_ring.ring_pose.position.x,
-                    green_ring.ring_pose.position.y,
-                )
-                if distance < closest_distance:
-                    closest_distance = distance
-                    closest_ground_ring = ground_ring
-
-        if closest_ground_ring is None:
-            rospy.loginfo("No ground ring found. ERROR")
-            return
-
-        rospy.loginfo("Found best possible ground ring. Will move to it")
-
-        aprox_park_location = self.get_object_greet_pose(
-            closest_ground_ring.ring_pose.position.x,
-            closest_ground_ring.ring_pose.position.y,
-            erosion=6,
-        )
-
-        self.move_to_goal(
-            aprox_park_location.position.x,
-            aprox_park_location.position.y,
-            aprox_park_location.orientation.x,
-            aprox_park_location.orientation.y,
-            aprox_park_location.orientation.z,
-            aprox_park_location.orientation.w,
-        )
-
-        rospy.loginfo("Initiating parking procedure")
-
-        dist_traveled = self.move_as_close_to_as_possible(
-            closest_ground_ring.ring_pose.position.x,
-            closest_ground_ring.ring_pose.position.y,
-        )
-
-        rospy.loginfo(f"The distance traveled to the ground ring is {dist_traveled}")
-        rospy.loginfo("I have finished my task")
-
-        self.sound_player.say("I have finished my task")
-
-        for wave in [self.arm_mover.wave1, self.arm_mover.wave2]:
-            self.arm_mover.arm_movement_pub.publish(wave)
-            rospy.sleep(wave.points[-1].time_from_start.to_sec())
-
     def poster_manual_input(self, poster_text: str):
         """
         Function for manual input of the poster text.
@@ -1039,7 +818,7 @@ class Brain:
                 self.move_to_goal(goal[0], goal[1], *quaternion)
                 rospy.sleep(2.0)
 
-                self.rotate(360, angular_speed=0.3)
+                self.rotate(360, angular_speed=0.6)
 
                 with self.detected_faces_lock:
                     rospy.loginfo(
@@ -1081,9 +860,9 @@ class Brain:
                                 self.velocity_publisher.publish(twist)
 
                             elif i % 3 == 0:
-                                self.rotate(10, angular_speed=0.3)
+                                self.rotate(10, angular_speed=0.5)
                             elif i % 5 == 0:
-                                self.rotate(10, angular_speed=0.3, clockwise=False)
+                                self.rotate(10, angular_speed=0.5, clockwise=False)
 
                             else:
                                 twist = Twist()
@@ -1301,9 +1080,9 @@ class Brain:
                 break
 
         # rotate to find the green ring
-        self.rotate(70, angular_speed=0.2)
+        self.rotate(70, angular_speed=0.5)
 
-        self.rotate(140, angular_speed=0.2, clockwise=False)
+        self.rotate(140, angular_speed=0.5, clockwise=False)
 
         # hide camera
         self.arm_mover.arm_movement_pub.publish(self.arm_mover.retract)
