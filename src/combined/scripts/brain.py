@@ -440,24 +440,20 @@ class Brain:
             distance_to_wall = self.laser_manager.distance_to_obstacle
 
             if (
-                self.arm_manager.arm_pose == "extend_ring"
+                self.arm_manager.arm_pose == "extend_above_down"
                 and closest_distance < 0.8
                 and (0.2 < distance_to_wall < 0.7)
             ):
                 rospy.loginfo("Adjusting arm camera")
-                self.arm_manager.arm_pose = "extend_ring_close"
-                self.arm_manager.arm_movement_pub.publish(
-                    self.arm_manager.commands["extend_ring_close"]
-                )
+                self.arm_manager.move_arm("extend_front_down")
 
             elif (
-                self.arm_manager.arm_pose == "extend_ring_close"
+                self.arm_manager.arm_pose == "extend_front_down"
                 and closest_distance >= 0.8
                 and distance_to_wall > 0.7
             ):
                 rospy.loginfo("Adjusting arm camera")
-                self.arm_manager.arm_pose = "extend_ring"
-                self.arm_manager.arm_movement_pub.publish(self.arm_manager.commands["extend_ring"])
+                self.arm_manager.move_arm("extend_above_down")
 
     def poster_manual_input(self, poster_text: str):
         """
