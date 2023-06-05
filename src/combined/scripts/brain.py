@@ -28,9 +28,9 @@ from nav_msgs.msg import Odometry
 
 from dialogue import PosterDialogue, PersonDialogue
 from ring_manager import RingManager
+from ground_ring_manager import GroundRingManager
 from combined.msg import (
     DetectedFaces,
-    DetectedRings,
     CylinderGreetInstructions,
     UniqueRingCoords,
 )
@@ -146,12 +146,11 @@ class Brain:
             rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
         )
 
-        self.detected_ground_rings_subscriber = rospy.Subscriber(
-            "/detected_ground_ring_coords", DetectedRings, self.ground_ring_callback
-        )
-
         # For managing rings
         self.ring_manager = RingManager()
+
+        # For managing ground rings
+        self.ground_ring_manager = GroundRingManager()
 
         # for cylinder handling
         rospy.Subscriber(
@@ -170,8 +169,7 @@ class Brain:
         self.is_ready = False
         self.detected_faces = []
         self.detected_faces_lock = threading.Lock()
-        self.detected_ground_rings: List[UniqueRingCoords] = []
-        self.detected_ground_rings_lock = threading.Lock()
+
         self.sound_player = SoundPlayer()
         self.additional_goals = []
 
@@ -255,17 +253,6 @@ class Brain:
 
             # Convert the updated dictionary back to a list
             self.detected_faces = list(existing_faces_dict.values())
-
-    def ground_ring_callback(self, msg: DetectedRings):
-        """
-        Callback function for the ring subscriber. Stores
-        detected rings in a thread-safe manner.
-
-        Args:
-            msg (DetectedRings): The message containing the detected rings.
-        """
-        with self.detected_ground_rings_lock:
-            self.detected_ground_rings = msg.array
 
     def parking_callback(self, msg: Pose):
         """
@@ -1054,10 +1041,10 @@ class Brain:
         self.arm_mover.arm_movement_pub.publish(self.arm_mover.retract)
 
         # go to ground ring that is closest to the green ring
-        with self.detected_ground_rings_lock:
+        with self.ground_ring_manager.detected_ground_rings_lock:
             closest_ground_ring = None
             closest_distance = 100000
-            for ground_ring in self.detected_ground_rings:
+            for ground_ring in self.ground_ring_manager.detected_ground_rings:
                 distance = self.map_manager.euclidean_distance(
                     ground_ring.ring_pose.position.x,
                     ground_ring.ring_pose.position.y,
