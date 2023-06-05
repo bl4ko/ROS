@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # TODO: fix pylint errors for modularity in this class # pylint: disable=fixme
-# pylint: disable=too-many-instance-attributes, too-many-arguments, too-many-locals, too-many-statements, too-many-branches, too-many-public-methods, too-many-lines
+# pylint: disable=too-many-instance-attributes, too-many-arguments, too-many-locals, too-many-statements, too-many-branches, too-many-public-methods
 
 """
 Module representing brain of the turtle bot.
@@ -29,75 +29,16 @@ from nav_msgs.msg import Odometry
 from dialogue import PosterDialogue, PersonDialogue
 from ring_manager import RingManager
 from ground_ring_manager import GroundRingManager
+from cylinder_manager import CylinderManager
+from face_manager import FaceManager
+from mercenary import MercenaryInfo
 from combined.msg import (
-    DetectedFaces,
-    CylinderGreetInstructions,
     UniqueRingCoords,
 )
 from combined.srv import IsPoster
 
 
-# pylint: disable=too-few-public-methods
-class Cylinder:
-    """
-    Class representing a cylinder.
-    """
-
-    def __init__(self, pose: Pose, color: str, cylinder_id: int, greet_pose: Pose) -> None:
-        self.cylinder_pose = pose
-        self.cylinder_color = color
-        self.cylinder_id = cylinder_id
-        self.cylinder_greet_pose = greet_pose
-
-
-class MercenaryInfo:
-    """
-    This class represents the information that the mercenary has about the task.
-    """
-
-    def __init__(
-        self,
-        name: str = None,
-        cylinder_color: str = None,
-        ring_color: str = None,
-        wanted_price: int = None,
-    ) -> None:
-        self.name: str = name
-        self.cylinder_color: str = cylinder_color
-        self.ring_color: str = ring_color
-        self.wanted_price: int = wanted_price
-
-    def __str__(self) -> str:
-        return (
-            f"Name: {self.name}, Cylinder color: {self.cylinder_color}, Ring color:"
-            f" {self.ring_color}, Wanted price: {self.wanted_price}"
-        )
-
-    def is_complete(self) -> bool:
-        """
-        Returns true if mercenary has enough information to complete the task, false otherwise
-        """
-        return (
-            self.name is not None
-            and self.cylinder_color is not None
-            and self.ring_color is not None
-            and self.wanted_price is not None
-        )
-
-    @staticmethod
-    def are_complete(mercenary_info_list) -> bool:
-        """
-        Returns true if all mercenaries in the list have enough
-        information to complete the task, false otherwise
-        """
-        valid = True
-        for mercenary_info in mercenary_info_list:
-            if not mercenary_info.is_complete():
-                valid = False
-        return valid
-
-
-def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
+def sigint_handler(sig: signal.Signals, frame: FrameType) -> None:
     """
     Handles the SIGINT signal, which is sent when the user presses Ctrl+C.
 
@@ -115,7 +56,7 @@ def signal_handler(sig: signal.Signals, frame: FrameType) -> None:
     sys.exit(0)
 
 
-signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGINT, sigint_handler)
 
 
 class Brain:
@@ -139,36 +80,19 @@ class Brain:
         )
         self.init_planner()
         self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: self.map_show_markers())
-        self.detected_faces_subscriber = rospy.Subscriber(
-            "/detected_faces", DetectedFaces, self.faces_callback
-        )
+
         self.searched_space_timer = rospy.Timer(
             rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
         )
 
-        # For managing rings
+        # Object for managing ring detections
         self.ring_manager = RingManager()
-
-        # For managing ground rings
+        # Object for managing ground ring detections
         self.ground_ring_manager = GroundRingManager()
-
-        # for cylinder handling
-        rospy.Subscriber(
-            "unique_cylinder_greet",
-            CylinderGreetInstructions,
-            self.detected_cylinder_callback,
-        )
-        self.cylinder_coords = []
-        self.cylinder_colors = []
-        self.cylinder_greet_poses = []
-        # self.num_all_cylinders = 10
-        self.num_all_cylinders = 4
-        self.all_cylinders_found = False
-        self.num_discovered_cylinders = 0
-
-        self.is_ready = False
-        self.detected_faces = []
-        self.detected_faces_lock = threading.Lock()
+        # Object for managing face and posters detections
+        self.face_manager = FaceManager()
+        # Object for managing cylinders
+        self.cylinder_manager = CylinderManager(map_manager=self.map_manager)
 
         self.sound_player = SoundPlayer()
         self.additional_goals = []
@@ -200,7 +124,6 @@ class Brain:
         self.poster_info_proxy = rospy.ServiceProxy("is_poster", IsPoster)
 
         self.mercenary_infos: List[MercenaryInfo] = []
-        self.cylinder_list: List[Cylinder] = []
 
     def init_planner(self) -> None:
         """
@@ -228,31 +151,6 @@ class Brain:
             goals.extend(self.additional_goals)
 
         self.map_manager.publish_markers_of_goals(goals)
-
-    def faces_callback(self, msg: DetectedFaces) -> None:
-        """
-        Callback function for the faces subscriber. Stores
-        detected faces in a thread-safe manner.
-
-        Args:
-            msg (DetectedFaces): The message containing the detected faces.
-        """
-        with self.detected_faces_lock:
-            # if the array is smaller than before update only the existing faces
-
-            # join the 2 arrays based on group_id
-            # Create a dictionary of existing faces with group_id as key
-            existing_faces_dict = {face.group_id: face for face in self.detected_faces}
-
-            # Create a dictionary of new faces with group_id as key
-            new_faces_dict = {face.group_id: face for face in msg.array}
-
-            # Update existing_faces_dict with new_faces_dict. This will overwrite
-            # existing entries with the same group_id and add new entries with new group_ids.
-            existing_faces_dict.update(new_faces_dict)
-
-            # Convert the updated dictionary back to a list
-            self.detected_faces = list(existing_faces_dict.values())
 
     def parking_callback(self, msg: Pose):
         """
@@ -346,73 +244,6 @@ class Brain:
 
         res = self.move_base_client.get_state()
         return res
-
-    def get_object_greet_pose(self, x_obj, y_obj, erosion: int = 0) -> Pose:
-        """
-        Returns Pose with proper greet location and orientation
-        for ring / cylinder at x_obj, y_obj.
-        """
-        # compute position
-        x_greet, y_greet = self.map_manager.get_nearest_accessible_point_with_erosion(
-            x_obj, y_obj, erosion
-        )
-
-        # compute orientation from greet point to object point
-        q_dest = self.map_manager.quaternion_from_points(x_greet, y_greet, x_obj, y_obj)
-
-        # create pose for greet
-        # pylint: disable=R0801
-        pose = Pose()
-        pose.position.x = x_greet
-        pose.position.y = y_greet
-        pose.position.z = 0
-        pose.orientation.x = q_dest[0]
-        pose.orientation.y = q_dest[1]
-        pose.orientation.z = q_dest[2]
-        pose.orientation.w = q_dest[3]
-        return pose
-
-    def detected_cylinder_callback(self, data):
-        """
-        Called when unique cylinder greet instructions published on topic.
-        """
-        cylinder_pose = data.object_pose
-        cylinder_color = data.object_color
-
-        rospy.loginfo(f"Received cylinder with color {cylinder_color}")
-
-        # compute greet location and orientation
-        x_cylinder = cylinder_pose.position.x
-        y_cylinder = cylinder_pose.position.y
-
-        cylinder_greet_pose = self.get_object_greet_pose(x_cylinder, y_cylinder, erosion=7)
-
-        self.cylinder_coords.append(cylinder_pose)
-        self.cylinder_colors.append(cylinder_color)
-        self.cylinder_greet_poses.append(cylinder_greet_pose)
-
-        new_cylinder = Cylinder(
-            pose=cylinder_pose,
-            color=cylinder_color,
-            greet_pose=cylinder_greet_pose,
-            cylinder_id=data.object_id,
-        )
-        rospy.loginfo(
-            f"New cylinder with color {cylinder_color} and id {data.object_id} added to list"
-        )
-        self.cylinder_list.append(new_cylinder)
-
-        self.num_discovered_cylinders = self.num_discovered_cylinders + 1
-
-        if self.num_discovered_cylinders >= self.num_all_cylinders:
-            self.all_cylinders_found = True
-
-    def have_cylinders_to_visit(self):
-        """
-        Returns true if there are still cylinders to visit.
-        """
-
-        return len(self.cylinder_coords) > 0
 
     def degrees_to_rad(self, deg):
         """
@@ -527,47 +358,6 @@ class Brain:
         angle = math.atan2(second_goal[1] - first_goal[1], second_goal[0] - first_goal[0])
         quaternion = quaternion_from_euler(0, 0, angle)
         return quaternion
-
-    def visit_found_cylinders(self):
-        """
-        Visits the rings found until now
-        """
-        while self.have_cylinders_to_visit():
-            if rospy.is_shutdown():
-                return
-
-            rospy.loginfo(f"Cylinder queue: {str(self.cylinder_colors)}")
-            current_cylinder_color = self.cylinder_colors.pop(0)
-            current_greet_pose = self.cylinder_greet_poses.pop(0)
-            self.cylinder_coords.pop(0)
-            self.greet_cylinder(current_cylinder_color, current_greet_pose)
-
-    def greet_cylinder(self, color, current_greet_pose):
-        """
-        Greets a cylinder
-
-        Args:
-            object_pose (Pose): Pose of the cylinder
-            color (str): Color of the cylinder
-            current_greet_pose (Pose): Pose of the greeting position
-            person_obj (_type_): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        rospy.loginfo("Greeting cylinder")
-
-        self.move_to_goal(
-            current_greet_pose.position.x,
-            current_greet_pose.position.y,
-            current_greet_pose.orientation.x,
-            current_greet_pose.orientation.y,
-            current_greet_pose.orientation.z,
-            current_greet_pose.orientation.w,
-        )
-
-        self.sound_player.say(color)
-        rospy.sleep(1)
 
     def get_robot_distance_to_point(self, position_x: float, position_y: float) -> float:
         """
@@ -772,15 +562,16 @@ class Brain:
 
                 self.rotate(360, angular_speed=0.6)
 
-                with self.detected_faces_lock:
+                with self.face_manager.detected_faces_lock:
                     rospy.loginfo(
-                        f"I have detected {len(self.detected_faces) - detected_faces_count} new"
-                        " faces during this iteration."
+                        "I have detected"
+                        f" {self.face_manager.detection_count() - detected_faces_count} new faces"
+                        " during this iteration."
                     )
 
                     new_faces = [
                         face
-                        for face in self.detected_faces
+                        for face in self.face_manager.detected_faces
                         if face.group_id not in detected_faces_group_ids
                     ]
 
@@ -913,10 +704,10 @@ class Brain:
             file.write(str(self.ring_manager.detected_rings))
 
             file.write("\nFace data:\n")
-            file.write(str(self.detected_faces))
+            file.write(str(self.face_manager.detected_faces))
 
             file.write("\nCylinder data:\n")
-            for cylinder in self.cylinder_list:
+            for cylinder in self.cylinder_manager.cylinder_list:
                 file.write(
                     f"cylinder_id: {cylinder.cylinder_id}, color: {cylinder.cylinder_color},"
                     f" cylinder_greet_pose: {cylinder.cylinder_greet_pose} , cylinder_pose:"
@@ -931,7 +722,7 @@ class Brain:
         )
 
         hiding_place_cylinder = None
-        for cylinder in self.cylinder_list:
+        for cylinder in self.cylinder_manager.cylinder_list:
             if cylinder.cylinder_color == highest_mercenary.cylinder_color:
                 hiding_place_cylinder = cylinder
                 break
@@ -958,13 +749,12 @@ class Brain:
             )
             return
 
-        # Go greet cylinder
-        self.greet_cylinder(
-            color=hiding_place_cylinder.cylinder_color,
-            current_greet_pose=hiding_place_cylinder.cylinder_greet_pose,
+        self.move_to_goal(
+            *hiding_place_cylinder.cylinder_greet_pose,
         )
+        self.sound_player.say(hiding_place_cylinder.cylinder_color)
 
-        aprox_park_location = self.get_object_greet_pose(
+        aprox_park_location = self.map_manager.get_object_greet_pose(
             prison_ring.ring_pose.position.x,
             prison_ring.ring_pose.position.y,
             erosion=6,
@@ -1061,7 +851,7 @@ class Brain:
 
         rospy.loginfo("Found best possible ground ring. Will move to it")
 
-        aprox_park_location = self.get_object_greet_pose(
+        aprox_park_location = self.map_manager.get_object_greet_pose(
             closest_ground_ring.ring_pose.position.x,
             closest_ground_ring.ring_pose.position.y,
             erosion=6,
@@ -1098,6 +888,5 @@ class Brain:
 if __name__ == "__main__":
     rospy.init_node("brain")
     brain = Brain()
-    brain.is_ready = True
     brain.think()
     rospy.spin()

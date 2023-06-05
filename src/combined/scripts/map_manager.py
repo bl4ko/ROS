@@ -968,12 +968,12 @@ class MapManager:
         (x_transformed, y_transformed) = self.map_to_world_coords(x_close, y_close)
         return x_transformed, y_transformed
 
-    def get_object_greet_pose(self, x_obj: float, y_obj: float) -> Pose:
+    def get_object_greet_pose(self, x_obj: float, y_obj: float, erosion: int = 0) -> Pose:
         """
         Returns pose with proper greet location and orientation
         for ring / cylinder at x_obj, y_obj.
         """
-        x_greet, y_greet = self.get_nearest_accessible_point(x_obj, y_obj)
+        x_greet, y_greet = self.get_nearest_accessible_point_with_erosion(x_obj, y_obj, erosion)
         q_dest = self.quaternion_from_points(x_greet, y_greet, x_obj, y_obj)
 
         # create pose for greet
