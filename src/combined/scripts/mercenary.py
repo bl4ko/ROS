@@ -1,3 +1,8 @@
+"""
+Module for managing the mercenary data.
+"""
+
+
 class MercenaryInfo:
     """
     This class represents the information that the mercenary has about the task.

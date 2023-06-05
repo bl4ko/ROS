@@ -79,11 +79,6 @@ class Brain:
             "mobile_base/commands/velocity", Twist, queue_size=10
         )
         self.init_planner()
-        self.markers_timer = rospy.Timer(rospy.Duration(1), lambda event: self.map_show_markers())
-
-        self.searched_space_timer = rospy.Timer(
-            rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
-        )
 
         # Object for managing ring detections
         self.ring_manager = RingManager()
