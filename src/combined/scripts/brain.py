@@ -22,7 +22,7 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Twist, Pose
 from tf.transformations import quaternion_from_euler
 from visualization_msgs.msg import Marker
-from move_arm import ArmMover
+
 from laser_manager import LaserManager
 from nav_msgs.msg import Odometry
 
@@ -30,6 +30,7 @@ from dialogue import PosterDialogue, PersonDialogue
 from ring_manager import RingManager
 from ground_ring_manager import GroundRingManager
 from cylinder_manager import CylinderManager
+from arm_manager import ArmManager
 from face_manager import FaceManager
 from mercenary import MercenaryInfo
 from combined.msg import (
@@ -88,19 +89,15 @@ class Brain:
         self.face_manager = FaceManager()
         # Object for managing cylinders
         self.cylinder_manager = CylinderManager(map_manager=self.map_manager)
+        # Object for managing the robot's arm
+        self.arm_manager = ArmManager()
 
+        # Object for playing sounds
         self.sound_player = SoundPlayer()
         self.additional_goals = []
 
         self.current_goal_pub = rospy.Publisher("brain_current_goal", Marker, queue_size=10)
         self.current_goal_marker_id = 0
-
-        # for moving arm
-        self.arm_mover = ArmMover()
-        rospy.sleep(1)
-        self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
-
-        self.arm_pose = "extend_ring"
 
         # /parking subscribe
         rospy.Subscriber("parking_spot", Pose, self.parking_callback)
@@ -443,22 +440,24 @@ class Brain:
             distance_to_wall = self.laser_manager.distance_to_obstacle
 
             if (
-                self.arm_pose == "extend_ring"
+                self.arm_manager.arm_pose == "extend_ring"
                 and closest_distance < 0.8
                 and (0.2 < distance_to_wall < 0.7)
             ):
                 rospy.loginfo("Adjusting arm camera")
-                self.arm_pose = "adjust_ring_close"
-                self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring_close)
+                self.arm_manager.arm_pose = "extend_ring_close"
+                self.arm_manager.arm_movement_pub.publish(
+                    self.arm_manager.commands["extend_ring_close"]
+                )
 
             elif (
-                self.arm_pose == "adjust_ring_close"
+                self.arm_manager.arm_pose == "extend_ring_close"
                 and closest_distance >= 0.8
                 and distance_to_wall > 0.7
             ):
                 rospy.loginfo("Adjusting arm camera")
-                self.arm_pose = "extend_ring"
-                self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring)
+                self.arm_manager.arm_pose = "extend_ring"
+                self.arm_manager.arm_movement_pub.publish(self.arm_manager.commands["extend_ring"])
 
     def poster_manual_input(self, poster_text: str):
         """
@@ -763,7 +762,7 @@ class Brain:
             aprox_park_location.orientation.w,
         )
 
-        self.arm_mover.arm_movement_pub.publish(self.arm_mover.extend_ring_close)
+        self.arm_manager.move_arm("extend_front_down")
 
         rospy.loginfo(
             f"POSITION aprox_park_location: {aprox_park_location.position.x},"
@@ -823,7 +822,7 @@ class Brain:
         self.rotate(140, angular_speed=0.5, clockwise=False)
 
         # hide camera
-        self.arm_mover.arm_movement_pub.publish(self.arm_mover.retract)
+        self.arm_manager.move_arm("retract_above_down")
 
         # go to ground ring that is closest to the green ring
         with self.ground_ring_manager.detected_ground_rings_lock:
@@ -873,9 +872,8 @@ class Brain:
 
         self.sound_player.say("I have finished my task")
 
-        for wave in [self.arm_mover.wave1, self.arm_mover.wave2]:
-            self.arm_mover.arm_movement_pub.publish(wave)
-            rospy.sleep(wave.points[-1].time_from_start.to_sec())
+        self.arm_manager.move_arm("wave1")
+        self.arm_manager.move_arm("wave2")
 
         rospy.loginfo("I have finished my task")
 

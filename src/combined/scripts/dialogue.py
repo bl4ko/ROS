@@ -81,8 +81,7 @@ class PersonDialogue:
             answer = input("Do you know the wanted person [Yes/No]: ").lower()
             if handle_input_type(answer, str):
                 break
-            else:
-                self.sound_player.say("Invalid answer. Please answer with yes or no.")
+            self.sound_player.say("Invalid answer. Please answer with yes or no.")
 
         if answer == "yes":
             self.sound_player.say("Tell me the name of the wanted person")
