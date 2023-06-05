@@ -99,11 +99,6 @@ class Brain:
         self.current_goal_pub = rospy.Publisher("brain_current_goal", Marker, queue_size=10)
         self.current_goal_marker_id = 0
 
-        # /parking subscribe
-        rospy.Subscriber("parking_spot", Pose, self.parking_callback)
-        self.parking_lock = threading.Lock()
-        self.parking_spot = None
-
         self.laser_manager = LaserManager()
 
         self.current_robot_pose = None
@@ -143,16 +138,6 @@ class Brain:
             goals.extend(self.additional_goals)
 
         self.map_manager.publish_markers_of_goals(goals)
-
-    def parking_callback(self, msg: Pose):
-        """
-        Callback function for the parking subscriber. Stores the parking spot
-
-        Args:
-            msg (Pose): The message containing the parking spot.
-        """
-        with self.parking_lock:
-            self.parking_spot = msg
 
     def current_robot_pose_callback(self, data: Odometry) -> None:
         """
