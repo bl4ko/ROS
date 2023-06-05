@@ -2,8 +2,7 @@
 Module for managing the cylinder detector data.
 """
 
-import threading
-from typing import List
+from typing import List, NamedTuple
 
 import rospy
 
@@ -13,16 +12,15 @@ from map_manager import MapManager
 from combined.msg import CylinderGreetInstructions
 
 
-class Cylinder:
+class Cylinder(NamedTuple):
     """
-    Class representing a cylinder.
+    Class Representing a Cylinder object
     """
 
-    def __init__(self, pose: Pose, color: str, cylinder_id: int, greet_pose: Pose) -> None:
-        self.cylinder_pose = pose
-        self.cylinder_color = color
-        self.cylinder_id = cylinder_id
-        self.cylinder_greet_pose = greet_pose
+    cylinder_id: int
+    pose: Pose
+    color: str
+    greet_pose: Pose
 
 
 class CylinderManager:
@@ -36,18 +34,7 @@ class CylinderManager:
             CylinderGreetInstructions,
             self.detected_cylinder_callback,
         )
-        self.detected_cylinders = []
-        self.detected_cylinders_lock = threading.Lock()
-
-        self.cylinder_list: List[Cylinder] = []
-
-        self.cylinder_coords = []
-        self.cylinder_colors = []
-        self.cylinder_greet_poses = []
-        # self.num_all_cylinders = 10
-        self.num_all_cylinders = 4
-        self.all_cylinders_found = False
-        self.num_discovered_cylinders = 0
+        self.detected_cylinders: List[Cylinder] = []
         self.map_manager = map_manager
 
     def detection_count(self) -> int:
@@ -65,7 +52,6 @@ class CylinderManager:
 
         rospy.loginfo(f"Received cylinder with color {cylinder_color}")
 
-        # compute greet location and orientation
         x_cylinder = cylinder_pose.position.x
         y_cylinder = cylinder_pose.position.y
 
@@ -73,29 +59,15 @@ class CylinderManager:
             x_cylinder, y_cylinder, erosion=7
         )
 
-        self.cylinder_coords.append(cylinder_pose)
-        self.cylinder_colors.append(cylinder_color)
-        self.cylinder_greet_poses.append(cylinder_greet_pose)
-
         new_cylinder = Cylinder(
             pose=cylinder_pose,
             color=cylinder_color,
             greet_pose=cylinder_greet_pose,
             cylinder_id=data.object_id,
         )
+
         rospy.loginfo(
             f"New cylinder with color {cylinder_color} and id {data.object_id} added to list"
         )
-        self.cylinder_list.append(new_cylinder)
 
-        self.num_discovered_cylinders = self.num_discovered_cylinders + 1
-
-        if self.num_discovered_cylinders >= self.num_all_cylinders:
-            self.all_cylinders_found = True
-
-    def have_cylinders_to_visit(self):
-        """
-        Returns true if there are still cylinders to visit.
-        """
-
-        return len(self.cylinder_coords) > 0
+        self.detected_cylinders.append(new_cylinder)

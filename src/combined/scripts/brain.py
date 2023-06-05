@@ -707,7 +707,7 @@ class Brain:
             file.write(str(self.face_manager.detected_faces))
 
             file.write("\nCylinder data:\n")
-            for cylinder in self.cylinder_manager.cylinder_list:
+            for cylinder in self.cylinder_manager.detected_cylinders:
                 file.write(
                     f"cylinder_id: {cylinder.cylinder_id}, color: {cylinder.cylinder_color},"
                     f" cylinder_greet_pose: {cylinder.cylinder_greet_pose} , cylinder_pose:"
@@ -722,7 +722,7 @@ class Brain:
         )
 
         hiding_place_cylinder = None
-        for cylinder in self.cylinder_manager.cylinder_list:
+        for cylinder in self.cylinder_manager.detected_cylinders:
             if cylinder.cylinder_color == highest_mercenary.cylinder_color:
                 hiding_place_cylinder = cylinder
                 break
