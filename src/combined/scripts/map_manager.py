@@ -3,16 +3,12 @@
 Module for managing the map data.
 """
 
-# TODO: pylint fix: pylint: disable=fixme
-# pylint: disable=too-many-lines, disable=too-many-instance-attributes, disable=too-many-locals, disable=too-many-arguments, disable=too-many-locals, disable=too-many-arguments, disable=too-many-public-methods
-
 import threading
 import math
 from typing import Tuple, List
 import cv2
 import numpy as np
 import rospy
-from matplotlib import pyplot as plt
 import tf2_geometry_msgs
 from nav_msgs.msg import OccupancyGrid
 from skimage.morphology import skeletonize
@@ -41,10 +37,6 @@ from tf.transformations import (
     concatenate_matrices,
 )
 
-
-# This script retrieves the map from the map_server and saves it in a 2D array.
-# It also uses ekeletonize to get most important points to visit in the map.
-# The points to visit are published as markers in rviz.
 LETHAL_OBSTACLE = 0
 INFLATED_OBSTACLE = 99
 UNKNOWN = 127
@@ -52,53 +44,45 @@ FREE_SPACE = 255
 WALL_THRESHOLD = 38
 
 
+# pylint: disable=too-many-instance-attributes, disable=too-many-public-methods
 class MapManager:
     """
-    A class for managaing a map, processing it and publishing markers for points to visit.
+    A class for managing a map, processing it and publishing markers for points to visit.
     """
 
-    def __init__(self, show_plot=False, init_node=True):
-        if init_node:
-            self.map = None  # Map from /map topic
-            self.cost_map = None  # Cost map from move_base/global_costmap/costmap
-            self.accessible_costmap = None  # Accesible points in the cost map
-            self.skeleton_overlay = None  # Overlay of the skeleton on the map
-            self.branch_points = None  # Branch points in the skeleton
-            # self.map_subscriber = rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
-            # self.cost_map_subscriber = rospy.Subscriber(
-            #     "/move_base/global_costmap/costmap", OccupancyGrid, self.cost_map_callback
-            # )
-            self.map_lock = threading.Lock()  # Add a lock for the map attribute
-            self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
-            self.marker_publisher = rospy.Publisher("goal_markers", MarkerArray, queue_size=100)
-            self.goals_ready = False
-            self.goal_points = []
-            self.map_transform = TransformStamped()
-            self.map_resolution = None
-            self.size_x = None
-            self.size_y = None
-            self.map_frame_id = None
-            self.cost_map_ready = False
-            self.bridge = CvBridge()
-            self.image_pub = rospy.Publisher("/map_manager_info", Image, queue_size=10)
+    def __init__(self):
+        self.map = None  # Map from /map topic
+        self.cost_map = None  # Cost map from move_base/global_costmap/costmap
+        self.accessible_costmap = None  # Accessible points in the cost map
+        self.skeleton_overlay = None  # Overlay of the skeleton on the map
+        self.branch_points = None  # Branch points in the skeleton
+        self.map_lock = threading.Lock()  # Add a lock for the map attribute
+        self.cost_map_lock = threading.Lock()  # Add a lock for the cost map attribute
+        self.marker_publisher = rospy.Publisher("goal_markers", MarkerArray, queue_size=100)
+        self.goals_ready = False
+        self.goal_points = []
+        self.map_transform = TransformStamped()
+        self.map_resolution = None
+        self.size_x = None
+        self.size_y = None
+        self.map_frame_id = None
+        self.cost_map_ready = False
+        self.bridge = CvBridge()
+        self.image_pub = rospy.Publisher("/map_manager_info", Image, queue_size=10)
+        self.show_plot = True
+        self.searched_space = None
+        self.tf_buf = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
 
-            # wait for messages
-            rospy.loginfo("Waiting for map and cost map messages...")
-            map_msg = rospy.wait_for_message("/map", OccupancyGrid, timeout=100)
-            cost_map_msg = rospy.wait_for_message(
-                "/move_base/global_costmap/costmap", OccupancyGrid, timeout=100
-            )
-            rospy.loginfo("Map and cost map messages received.")
+        cost_map_msg = rospy.wait_for_message(
+            "/move_base/global_costmap/costmap", OccupancyGrid, timeout=100
+        )
+        self.cost_map_callback(cost_map_msg)
+        rospy.loginfo("Map and cost map messages received.")
 
-            self.searched_space = None
-            self.tf_buf = tf2_ros.Buffer()
-            self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
-            self.show_plot = show_plot
-
-            # Process the map and cost map
-            # first is cost map because it is used in map_callback
-            self.cost_map_callback(cost_map_msg)
-            self.map_callback(map_msg)
+        rospy.loginfo("Waiting for map and cost map messages...")
+        map_msg = rospy.wait_for_message("/map", OccupancyGrid, timeout=100)
+        self.map_callback(map_msg)
 
     def map_callback(self, map_data) -> None:
         """
@@ -152,7 +136,6 @@ class MapManager:
             self.branch_points = self.filter_branch_points()
 
             # self.visualize_branch_points()
-
             if self.show_plot:
                 self.visualize(
                     self.skeleton_overlay,
@@ -206,7 +189,7 @@ class MapManager:
         """
         Returns a list of goals from the searched space that have not been searched yet.
         """
-        # get the unsarched space
+        # get the unsearched space
         unsearched_space = self.searched_space.copy()
         unsearched_space[unsearched_space == 255] = 0
         unsearched_space[unsearched_space == 60] = 255
@@ -301,9 +284,6 @@ class MapManager:
                 print("Removing point, because to close to another: ", point)
                 continue
 
-            # # #check that the point is not too close to black pixels
-            # # if self.is_in_proximity_of_black_pixel(point,0.7):
-            # #     continue
             filtered_branch_points.append(point)
             print("Adding prospect point: ", point)
 
@@ -312,7 +292,6 @@ class MapManager:
     def has_clear_path(self, point1, point2):
         """
         Check if there is a clear path between two points.
-
         The points are in world coordinates.
         """
 
@@ -332,9 +311,7 @@ class MapManager:
     def is_in_proximity_of_black_pixel(self, point, proximity=10):
         """
         Check if a point is in proximity of a black pixel.
-
         The proximity is in meters.
-
         """
 
         proximity = int(proximity / self.map_resolution)
@@ -359,9 +336,7 @@ class MapManager:
     def is_close_to_other(self, point, other_points, distance_threshold=0.7):
         """
         Check if a point is close to any other point.
-
         The distance threshold is in meters.
-
         """
 
         distance_threshold = int(distance_threshold / self.map_resolution)
@@ -377,22 +352,20 @@ class MapManager:
         """
         Visualize the map, skeleton overlay and branch points in rviz.
         """
+
+        print("Visualizing map")
         # create a blank image
         img = np.zeros((self.size_y, self.size_x), np.uint8)
-        # add each with a certain weight
         img = cv2.addWeighted(accessible_costmap, 0.5, skeleton_overlay, 0.38, 0)
 
-        # conver branch points (x,y) to image where x y is white
-
+        # convert branch points (x,y) to image where x y is white
         bp_img = np.zeros((self.size_y, self.size_x), np.uint8)
         for point in branch_points:
             bp_img[point[1], point[0]] = 255
 
         img = cv2.addWeighted(img, 0.5, bp_img, 0.77, 0)
-        # convert to ros image
 
         # for each point in branch points add a circle around it
-
         circles = np.zeros((self.size_y, self.size_x), np.uint8)
         size = 1.6  # meters
         size = int(size / self.map_resolution)
@@ -400,30 +373,16 @@ class MapManager:
             cv2.circle(circles, (point[0], point[1]), size, (255, 255, 255), -1)
 
         img = cv2.addWeighted(img, 0.5, circles, 0.13, 0)
-
-        # flip image
         img = cv2.flip(img, 0)
 
         # zoom into center for better visualization
         zoomed = img[160 + 20 : 325, 160 + 20 : 325]
-        img = zoomed
 
-        # save image
-        # cv2.imwrite("map.png", img)
-
-        # plot
-        plt.imshow(img, cmap="gray")
-        plt.show()
-
-        # wait for key press to continue
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        ros_img = self.bridge.cv2_to_imgmsg(img, "rgb8")
-        # publish every second
-        timer = threading.Timer(1, self.image_pub.publish, [ros_img])
-        timer.start()
+        zoomed_resized = cv2.resize(
+            zoomed, (self.size_y, self.size_x), interpolation=cv2.INTER_LINEAR
+        )
+        rospy.logdebug("Saving map")
+        cv2.imwrite("./debug/map.png", zoomed_resized)
 
     def cost_map_callback(self, map_data) -> None:
         """
@@ -566,7 +525,7 @@ class MapManager:
         Returns:
             np.ndarray: The skeleton overlay.
         """
-        # Skeletonize the map: The map is flipped vertically, skletenozied
+        # Skeletonize the map: The map is flipped vertically, skeletonized,
         # and then flipped back. The skeletonization process finds the "skeleton"
         # of the free space in the map, which is a thinned, single-pixel wide
         # version of the original free space
@@ -686,11 +645,10 @@ class MapManager:
         for _, branch_point in enumerate(self.branch_points):
             bp_map[branch_point[1]][branch_point[0]] = 255
 
-        # overlayed_bp = cv2.addWeighted(self.map, 0.5, bp_map, 0.5, 0)
-        # cv2.imshow("overlayed branch points", overlayed_bp)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
+        overlayed_bp = cv2.addWeighted(self.map, 0.5, bp_map, 0.5, 0)
+        cv2.imwrite("./debug/overlayed_branch_points", overlayed_bp)
 
+    # pylint: disable=too-many-arguments, disable=too-many-locals
     def get_face_greet_location_candidates_perpendicular(
         self, x_ce, y_ce, fpose_left, fpose_right, dist=30
     ):
@@ -725,13 +683,13 @@ class MapManager:
                     break
 
             if len(candidates_reachable) == 0:
-                # rospy.loginfo("Searching for backup candidates")
+                rospy.logdebug("Searching for backup candidates")
                 backup_candidate = candidates[3]
                 x_close, y_close = self.nearest_nonzero_to_point(
                     self.accessible_costmap, backup_candidate[0], backup_candidate[1]
                 )
                 candidates_reachable.append((x_close, y_close))
-                # rospy.loginfo(candidates_reachable)
+                rospy.logdebug(candidates_reachable)
 
             return candidates_reachable
 
@@ -953,12 +911,8 @@ class MapManager:
         kernel = np.ones((3, 3), np.uint8)
         accessible_map_copy = cv2.erode(accessible_map_copy, kernel, iterations=erosion_iter)
 
-        # save_image(accessible_map_copy, "accessible_map_copy.png")
-
-        debugimg = np.zeros_like(accessible_map_copy)
-        # keep only non-zero values
-        debugimg[accessible_map_copy > 0] = 255
-
+        debug_img = np.zeros_like(accessible_map_copy)
+        debug_img[accessible_map_copy > 0] = 255
         # cv2.imwrite("acemap_debug.png", debugimg)
 
         x_close, y_close = self.nearest_nonzero_to_point(accessible_map_copy, c_x, c_y)
@@ -1008,7 +962,7 @@ def test():
     rospy.init_node("path_setter", anonymous=True)
     map_manager = MapManager()
 
-    rate = rospy.Rate(1)  # 1 Hz
+    rate = rospy.Rate(1)
     while not rospy.is_shutdown():
         if map_manager.is_ready():
             goals = map_manager.get_goals()

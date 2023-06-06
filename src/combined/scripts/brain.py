@@ -66,7 +66,7 @@ class Brain:
     """
 
     def __init__(self):
-        self.map_manager = MapManager(show_plot=False)
+        self.map_manager = MapManager()
         rospy.loginfo("Waiting for map manager to be ready...")
         while self.map_manager.is_ready() is False:
             rospy.sleep(0.1)
@@ -772,7 +772,7 @@ class Brain:
         goals = self.map_manager.get_goals()
         arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
 
-        while not rospy.is_shutdown():
+        while not rospy.is_shutdown() and len(goals) > 0:
             optimized_path = self.nearest_neighbor_path(goals, goals[0])
 
             for i, goal in enumerate(optimized_path):
@@ -824,15 +824,16 @@ class Brain:
 
         hiding_place_cylinder, prison_ring = self.get_most_wanted_data()
 
+        # Greet the target cylinder
         self.move_to_goal(hiding_place_cylinder.cylinder_greet_pose)
         self.sound_player.say(hiding_place_cylinder.cylinder_color)
 
         # Park inside the prison ring
         self.park_in_ring(prison_ring)
 
+        # Finish the task with a wave
         self.arm_manager.move_arm("wave1")
         self.arm_manager.move_arm("wave2")
-
         self.sound_player.say("I have finished my task")
 
 
