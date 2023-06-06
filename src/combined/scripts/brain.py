@@ -644,76 +644,13 @@ class Brain:
 
         return hiding_place_cylinder, prison_ring
 
-    def think(self):
+    def park_in_ring(self, prison_ring: UniqueRingCoords):
         """
-        Main logic function for the turtle bot's brain. The turtle bot moves through the keypoints
-        in the order determined by the nearest neighbor algorithm, performing a 360-degree rotation
-        at each keypoint. If any new faces are detected during the rotation, the turtle bot moves to
-        the face location and then continues to the next keypoint.
+        Parks the robot in the prison ring.
+
+        Args:
+            prison_ring (UniqueRingCoords): The prison ring.
         """
-
-        detected_face_group_ids = set()
-        detected_ring_group_ids = set()
-        detected_cylinder_group_ids = set()
-
-        goals = self.map_manager.get_goals()
-        arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
-
-        while not rospy.is_shutdown():
-            optimized_path = self.nearest_neighbor_path(goals, goals[0])
-
-            for i, goal in enumerate(optimized_path):
-                self.map_manager.publish_markers_of_goals(goals=goals, duration=500)
-
-                rospy.loginfo(
-                    f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
-                    f" {len(detected_face_group_ids)}."
-                )
-
-                goal_pose = Pose()
-                goal_pose.position.x, goal_pose.position.y = goal[0], goal[1]
-                goal_pose.orientation = Quaternion(0, 0, -0.707, 0.707)  # always face south
-                self.move_to_goal(goal_pose)
-
-                rospy.sleep(2.0)
-
-                self.rotate(360, angular_speed=0.6)
-
-                # Process new faces
-                new_face_count = self.face_manager.detection_count() - len(detected_face_group_ids)
-                rospy.loginfo(f" {new_face_count} new faces detected.")
-                if new_face_count > 0:
-                    self.visit_new_faces(detected_face_group_ids)
-
-                # Process new rings
-                new_ring_count = self.ring_manager.detection_count() - len(detected_ring_group_ids)
-                rospy.loginfo(f" {new_ring_count} new rings detected.")
-                if new_ring_count > 0:
-                    self.process_new_rings(detected_ring_group_ids)
-
-                # Process new cylinders
-                new_cylinder_count = self.cylinder_manager.detection_count() - len(
-                    detected_cylinder_group_ids
-                )
-                rospy.loginfo(f" {new_cylinder_count} new cylinders detected.")
-                if new_cylinder_count > 0:
-                    self.process_new_cylinders(detected_cylinder_group_ids)
-
-            # Check if enough data has been collected to complete the mission
-            # If not then get additional goals
-            if not MercenaryInfo.are_complete(self.mercenary_infos):
-                rospy.loginfo("Mercenary Infos are not complete. Adding additional goals.")
-                goals = self.get_additional_goals(previous_goals=goals)
-            else:
-                break
-
-        arm_cam_timer.shutdown()
-
-        hiding_place_cylinder, prison_ring = self.get_most_wanted_data()
-
-        self.move_to_goal(hiding_place_cylinder.cylinder_greet_pose)
-        self.sound_player.say(hiding_place_cylinder.cylinder_color)
-
         aprox_park_location = self.map_manager.get_object_greet_pose(
             prison_ring.ring_pose.position.x,
             prison_ring.ring_pose.position.y,
@@ -726,8 +663,6 @@ class Brain:
         rospy.loginfo(
             f"POSITION aprox_park_location: {aprox_park_location.position.x},"
             f" {aprox_park_location.position.y}"
-        )
-        rospy.loginfo(
             f"POSITION  prison_ring: {prison_ring.ring_pose.position.x},"
             f" {prison_ring.ring_pose.position.y}"
         )
@@ -742,7 +677,7 @@ class Brain:
             f"Distance between green ring and approximate parking spot: {distance_to_prison_ring}"
         )
 
-        for i in range(10):
+        for _ in range(10):
             # get robot distance to green ring
             robot_distance_to_wall = self.laser_manager.distance_to_obstacle
 
@@ -822,12 +757,83 @@ class Brain:
         rospy.loginfo(f"The distance traveled to the ground ring is {dist_traveled}")
         rospy.loginfo("I have finished my task")
 
-        self.sound_player.say("I have finished my task")
+    def think(self):
+        """
+        Main logic function for the turtle bot's brain. The turtle bot moves through the keypoints
+        in the order determined by the nearest neighbor algorithm, performing a 360-degree rotation
+        at each keypoint. If any new faces are detected during the rotation, the turtle bot moves to
+        the face location and then continues to the next keypoint.
+        """
+
+        detected_face_group_ids = set()
+        detected_ring_group_ids = set()
+        detected_cylinder_group_ids = set()
+
+        goals = self.map_manager.get_goals()
+        arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
+
+        while not rospy.is_shutdown():
+            optimized_path = self.nearest_neighbor_path(goals, goals[0])
+
+            for i, goal in enumerate(optimized_path):
+                self.map_manager.publish_markers_of_goals(goals=goals, duration=500)
+
+                rospy.loginfo(
+                    f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
+                    f" {len(detected_face_group_ids)}."
+                )
+
+                goal_pose = Pose()
+                goal_pose.position.x, goal_pose.position.y = goal[0], goal[1]
+                goal_pose.orientation = Quaternion(0, 0, -0.707, 0.707)  # always face south
+                self.move_to_goal(goal_pose)
+
+                rospy.sleep(2.0)
+
+                self.rotate(360, angular_speed=0.6)
+
+                # Process new faces
+                new_face_count = self.face_manager.detection_count() - len(detected_face_group_ids)
+                rospy.loginfo(f" {new_face_count} new faces detected.")
+                if new_face_count > 0:
+                    self.visit_new_faces(detected_face_group_ids)
+
+                # Process new rings
+                new_ring_count = self.ring_manager.detection_count() - len(detected_ring_group_ids)
+                rospy.loginfo(f" {new_ring_count} new rings detected.")
+                if new_ring_count > 0:
+                    self.process_new_rings(detected_ring_group_ids)
+
+                # Process new cylinders
+                new_cylinder_count = self.cylinder_manager.detection_count() - len(
+                    detected_cylinder_group_ids
+                )
+                rospy.loginfo(f" {new_cylinder_count} new cylinders detected.")
+                if new_cylinder_count > 0:
+                    self.process_new_cylinders(detected_cylinder_group_ids)
+
+            # Check if enough data has been collected to complete the mission
+            # If not then get additional goals
+            if not MercenaryInfo.are_complete(self.mercenary_infos):
+                rospy.loginfo("Mercenary Infos are not complete. Adding additional goals.")
+                goals = self.get_additional_goals(previous_goals=goals)
+            else:
+                break
+
+        arm_cam_timer.shutdown()
+
+        hiding_place_cylinder, prison_ring = self.get_most_wanted_data()
+
+        self.move_to_goal(hiding_place_cylinder.cylinder_greet_pose)
+        self.sound_player.say(hiding_place_cylinder.cylinder_color)
+
+        # Park inside the prison ring
+        self.park_in_ring(prison_ring)
 
         self.arm_manager.move_arm("wave1")
         self.arm_manager.move_arm("wave2")
 
-        rospy.loginfo("I have finished my task")
+        self.sound_player.say("I have finished my task")
 
 
 if __name__ == "__main__":
