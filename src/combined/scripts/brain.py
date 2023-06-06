@@ -1,7 +1,5 @@
 #!/usr/bin/python3
 
-# TODO: fix pylint errors for modularity in this class # pylint: disable=fixme
-# pylint: disable=too-many-instance-attributes, too-many-arguments, too-many-locals, too-many-statements, too-many-branches, too-many-public-methods
 
 """
 Module representing brain of the turtle bot.
@@ -10,8 +8,7 @@ Module representing brain of the turtle bot.
 import math
 import signal
 import sys
-import threading
-from typing import Tuple, List
+from typing import Tuple, List, Set
 from types import FrameType
 import numpy as np
 import actionlib
@@ -19,7 +16,7 @@ import rospy
 from map_manager import MapManager
 from sound import SoundPlayer
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
-from geometry_msgs.msg import Twist, Pose
+from geometry_msgs.msg import Twist, Pose, Quaternion, Point
 from tf.transformations import quaternion_from_euler
 from visualization_msgs.msg import Marker
 
@@ -60,6 +57,7 @@ def sigint_handler(sig: signal.Signals, frame: FrameType) -> None:
 signal.signal(signal.SIGINT, sigint_handler)
 
 
+# pylint: disable=too-many-instance-attributes
 class Brain:
     """
     This class represents the brain of the turtle bot. It is responsible for
@@ -94,15 +92,15 @@ class Brain:
 
         # Object for playing sounds
         self.sound_player = SoundPlayer()
-        self.additional_goals = []
 
         self.current_goal_pub = rospy.Publisher("brain_current_goal", Marker, queue_size=10)
         self.current_goal_marker_id = 0
 
         self.laser_manager = LaserManager()
 
+        # Subscriber for updating the current robot pose
+        self.robot_pose_sub = rospy.Subscriber("/odom", Odometry, self.current_robot_pose_callback)
         self.current_robot_pose = None
-        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.current_robot_pose_callback)
 
         # add service
         rospy.loginfo("Waiting for poster info service")
@@ -129,16 +127,6 @@ class Brain:
         rospy.set_param("/move_base/max_planning_retries", 3)
         rospy.set_param("/move_base/clearing_rotation_allowed", False)
 
-    def map_show_markers(self) -> None:
-        """
-        Publishes markers of initial goals on the map.
-        """
-        goals = self.map_manager.get_goals()
-        if len(self.additional_goals) > 0:
-            goals.extend(self.additional_goals)
-
-        self.map_manager.publish_markers_of_goals(goals)
-
     def current_robot_pose_callback(self, data: Odometry) -> None:
         """
         Callback function for the current robot pose subscriber. Stores the current robot pose.
@@ -148,25 +136,12 @@ class Brain:
         """
         self.current_robot_pose = data.pose.pose
 
-    def move_to_goal(
-        self,
-        x_position: float,
-        y_position: float,
-        rr_x: float,
-        rr_y: float,
-        rr_z: float,
-        rr_w: float,
-    ) -> int:
+    def move_to_goal(self, goal_pose: Pose) -> int:
         """
         Moves the turtle bot to the goal with the given coordinates and orientation.
 
         Args:
-            x (float): The x-coordinate of the goal position.
-            y (float): The y-coordinate of the goal position.
-            rr_x (float): The x-component of the quaternion representing the goal orientation.
-            rr_y (float): The y-component of the quaternion representing the goal orientation.
-            rr_z (float): The z-component of the quaternion representing the goal orientation.
-            rr_w (float): The w-component of the quaternion representing the goal orientation.
+            goal_pose (Pose): The goal pose.
 
         Returns:
             int: The state of the action after it has finished executing, one of the following:
@@ -184,12 +159,13 @@ class Brain:
         goal = MoveBaseGoal()
         goal.target_pose.header.frame_id = "map"
         goal.target_pose.header.stamp = rospy.Time.now()
-        goal.target_pose.pose.position.x = x_position
-        goal.target_pose.pose.position.y = y_position
-        goal.target_pose.pose.orientation.x = rr_x
-        goal.target_pose.pose.orientation.y = rr_y
-        goal.target_pose.pose.orientation.z = rr_z
-        goal.target_pose.pose.orientation.w = rr_w
+
+        goal.target_pose.pose.position.x = goal_pose.position.x
+        goal.target_pose.pose.position.y = goal_pose.position.y
+        goal.target_pose.pose.orientation.x = goal_pose.orientation.x
+        goal.target_pose.pose.orientation.y = goal_pose.orientation.y
+        goal.target_pose.pose.orientation.z = goal_pose.orientation.z
+        goal.target_pose.pose.orientation.w = goal_pose.orientation.w
 
         marker = Marker()
         marker.header.frame_id = "map"
@@ -500,195 +476,146 @@ class Brain:
             f" {dialogue.cylinder_color}"
         )
 
-    def think(self):
+    def process_new_cylinders(self, detected_cylinders_group_ids: Set[int]) -> None:
         """
-        Main logic function for the turtle bot's brain. The turtle bot moves through the keypoints
-        in the order determined by the nearest neighbor algorithm, performing a 360-degree rotation
-        at each keypoint. If any new faces are detected during the rotation, the turtle bot moves to
-        the face location and then continues to the next keypoint.
+        Function for processing new cylinders.
+
+        Args:
+            detected_cylinders_group_ids (Set[int]): Set containing
+                            the group ids of the detected cylinders
         """
 
-        detected_faces_count = 0
-        detected_faces_group_ids = set()
-        detected_rings_group_ids = set()
-
-        detected_rings_count = 0
-        detected_rings_group_ids = set()
-
-        goals = self.map_manager.get_goals()
-        arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
-
-        while not rospy.is_shutdown():
-            optimized_path = self.nearest_neighbor_path(goals, goals[0])
-
-            for i, goal in enumerate(optimized_path):
+        for cylinder in self.cylinder_manager.detected_cylinders:
+            if cylinder.cylinder_id not in detected_cylinders_group_ids:
                 rospy.loginfo(
-                    f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
-                    f" {detected_faces_count}."
+                    f"Saving cylinder with id: {cylinder.cylinder_id}, color: {cylinder.color}"
                 )
+                detected_cylinders_group_ids.add(cylinder.cylinder_id)
 
-                quaternion = (0, 0, 0, 1)
-                if i < len(optimized_path) - 1:
-                    # always face south
-                    quaternion = (0, 0, -0.707, 0.707)
+    def process_new_rings(self, detected_rings_group_ids: Set[int]) -> None:
+        """
+        Function for processing new rings.
 
-                self.move_to_goal(goal[0], goal[1], *quaternion)
-                rospy.sleep(2.0)
+        Args:
+            detected_rings_group_ids (Set[int]): Set containing the group ids of the detected rings.
+        """
+        with self.ring_manager.detected_rings_lock:
+            new_rings: List[UniqueRingCoords] = [
+                ring
+                for ring in self.ring_manager.detected_rings
+                if ring.group_id not in detected_rings_group_ids
+            ]
 
-                self.rotate(360, angular_speed=0.6)
+            for new_ring in new_rings:
+                rospy.loginfo(f"Saving ring with id: {new_ring.group_id}, color: {new_ring.color}")
+                detected_rings_group_ids.add(new_ring.group_id)
 
-                with self.face_manager.detected_faces_lock:
-                    rospy.loginfo(
-                        "I have detected"
-                        f" {self.face_manager.detection_count() - detected_faces_count} new faces"
-                        " during this iteration."
+    def visit_new_faces(self, detected_faces_group_ids: Set[int]) -> None:
+        """
+        Args:
+            detected_faces_group_ids (Set[int]): _description_
+        """
+        with self.face_manager.detected_faces_lock:
+            for face in self.face_manager.detected_faces:
+                if face.group_id not in detected_faces_group_ids:
+                    face_goal = Pose(
+                        position=Point(x=face.x_coord, y=face.y_coord, z=0.0),
+                        orientation=Quaternion(face.rr_x, face.rr_y, face.rr_z, face.rr_w),
                     )
+                    self.move_to_goal(face_goal)
+                    rospy.sleep(2.0)
+                    # Recognize poster here
+                    response = self.poster_info_proxy(face.group_id)
+                    for i in range(10):
+                        if response.status == 1:
+                            break
+                        response = self.poster_info_proxy(face.group_id)
 
-                    new_faces = [
-                        face
-                        for face in self.face_manager.detected_faces
-                        if face.group_id not in detected_faces_group_ids
-                    ]
+                        if i % 2 == 0:
+                            twist = Twist()
+                            twist.linear.x = -0.2
+                            self.velocity_publisher.publish(twist)
+                            rospy.sleep(0.8)
+                            twist.linear.x = 0.0
+                            self.velocity_publisher.publish(twist)
 
-                    for new_face in new_faces:
-                        self.move_to_goal(
-                            new_face.x_coord,
-                            new_face.y_coord,
-                            new_face.rr_x,
-                            new_face.rr_y,
-                            new_face.rr_z,
-                            new_face.rr_w,
-                        )
-
-                        rospy.sleep(2.0)
-
-                        # Recognize poster here
-                        response = self.poster_info_proxy(new_face.group_id)
-                        for i in range(10):
-                            if response.status == 1:
-                                break
-                            response = self.poster_info_proxy(new_face.group_id)
-
-                            if i % 2 == 0:
-                                twist = Twist()
-                                twist.linear.x = -0.2
-                                self.velocity_publisher.publish(twist)
-                                rospy.sleep(0.8)
-                                twist.linear.x = 0.0
-                                self.velocity_publisher.publish(twist)
-
-                            elif i % 3 == 0:
-                                self.rotate(10, angular_speed=0.5)
-                            elif i % 5 == 0:
-                                self.rotate(10, angular_speed=0.5, clockwise=False)
-
-                            else:
-                                twist = Twist()
-                                twist.linear.x = 0.2
-                                self.velocity_publisher.publish(twist)
-                                rospy.sleep(0.8)
-                                twist.linear.x = 0.0
-                                self.velocity_publisher.publish(twist)
-
-                            rospy.sleep(0.5)
-
-                        if response.status == 0:
-                            rospy.logwarn("No poster info found this should not happen")
-                            # if poster detection fails continue to next explore
-                            # point and return to the face on the next iteration
-                            rospy.sleep(2)
-                            continue
-
-                        if response.is_poster:
-                            self.poster_manual_input(response.poster_text)
+                        elif i % 3 == 0:
+                            self.rotate(10, angular_speed=0.5)
+                        elif i % 5 == 0:
+                            self.rotate(10, angular_speed=0.5, clockwise=False)
 
                         else:
-                            self.person_manual_dialogue()
+                            twist = Twist()
+                            twist.linear.x = 0.2
+                            self.velocity_publisher.publish(twist)
+                            rospy.sleep(0.8)
+                            twist.linear.x = 0.0
+                            self.velocity_publisher.publish(twist)
 
-                        rospy.loginfo(f"Greeting face id: {new_face.group_id}")
-                        self.sound_player.play_goodbye_sound()
+                        rospy.sleep(0.5)
+
+                    if response.status == 0:
+                        rospy.logwarn("No poster info found this should not happen")
                         rospy.sleep(2)
-                        rospy.loginfo(f"Done greeting face id: {new_face.group_id}")
+                        continue
 
-                        if new_face.group_id not in detected_faces_group_ids:
-                            rospy.loginfo(f"Saving face with id: {new_face.group_id}")
-                            detected_faces_group_ids.add(new_face.group_id)
-                            detected_faces_count += 1
+                    rospy.loginfo(f"Greeting face id: {face.group_id}")
+                    if response.is_poster:
+                        self.poster_manual_input(response.poster_text)
+                    else:
+                        self.person_manual_dialogue()
 
-                with self.ring_manager.detected_rings_lock:
-                    if self.ring_manager.detection_count() > detected_rings_count:
-                        rospy.loginfo(
-                            "I have detected"
-                            f" {self.ring_manager.detection_count() - detected_rings_count} new"
-                            " rings during this iteration."
-                        )
+                    self.sound_player.play_goodbye_sound()
+                    rospy.sleep(2)
+                    rospy.loginfo(f"Done greeting face id: {face.group_id}")
 
-                        new_rings: List[UniqueRingCoords] = [
-                            ring
-                            for ring in self.ring_manager.detected_rings
-                            if ring.group_id not in detected_rings_group_ids
-                        ]
+                    if face.group_id not in detected_faces_group_ids:
+                        rospy.logdebug(f"Saving face with id: {face.group_id}")
+                        detected_faces_group_ids.add(face.group_id)
 
-                        for new_ring in new_rings:
-                            rospy.loginfo(
-                                f"Saving ring with id: {new_ring.group_id}, color: {new_ring.color}"
-                            )
-                            detected_rings_group_ids.add(new_ring.group_id)
+    def get_additional_goals(
+        self, previous_goals: List[Tuple[float, float]]
+    ) -> List[Tuple[float, float]]:
+        """
+        Returns a list of additional goals that the robot should visit.
 
-                        detected_rings_count = self.ring_manager.detection_count()
+        Args:
+            previous_goals (List[Tuple[float, float]]): List of previous goals
+            that the robot has visited.
 
-            if not MercenaryInfo.are_complete(self.mercenary_infos):
-                previous_goals = goals
-                self.additional_goals = self.map_manager.get_additional_goals()
-                rospy.loginfo("Mercenary Infos are not complete.")
-                for mercenary_info in self.mercenary_infos:
-                    rospy.loginfo(f"Mercenary Info: {mercenary_info}")
+        Returns:
+            List[Tuple[float, float]]: List of additional goals that the robot should visit.
+        """
+        additional_goals = self.map_manager.get_additional_goals()
 
-                # if the distance between the last goal
-                # and the first goal is less than 0.1m remove the goal
-                for goal in self.additional_goals:
-                    if np.linalg.norm(np.array(goal) - np.array(previous_goals[0])) < 0.1:
-                        rospy.loginfo(
-                            f"Removing goal: {goal} because it is too close to the"
-                            f" goal{previous_goals[0]}"
-                        )
-                        self.additional_goals.remove(goal)
-                        rospy.loginfo("Removed goal because i wasn't able to reach it")
+        for mercenary_info in self.mercenary_infos:
+            rospy.loginfo(f"Mercenary Info: {mercenary_info}")
 
-                if len(self.additional_goals) < 1:
-                    rospy.loginfo("No new goals found. Will stop")
-                    break
+        # if the distance between the last goal
+        # and the first goal is less than 0.1m remove the goal
+        for goal in additional_goals.copy():
+            if np.linalg.norm(np.array(goal) - np.array(previous_goals[0])) < 0.1:
                 rospy.loginfo(
-                    f"Found {len(self.additional_goals )} new goals. Will continue exploring"
+                    f"Removing goal: {goal} because it is too close to the goal{previous_goals[0]}"
                 )
-                goals = self.additional_goals
+                additional_goals.remove(goal)
+                rospy.loginfo("Removed goal because i wasn't able to reach it")
 
-            else:
-                break
+        if len(additional_goals) < 1:
+            rospy.logerr("No new goals found. Will stop!")
+            return []
 
-        if not MercenaryInfo.are_complete(self.mercenary_infos):
-            rospy.logerr("I was not able to get all the mercenary info CRITICAL ERROR")
+        rospy.loginfo(f"Found {len(additional_goals )} new goals. Will continue exploring")
 
-        arm_cam_timer.shutdown()
-        with open("./debug/mercenary_data.txt", "w", encoding="utf-8") as file:
-            file.write("\nMercenary data:\n")
-            for mercenary_info in self.mercenary_infos:
-                file.write(str(mercenary_info))
+        return additional_goals
 
-            file.write("\nRing data:\n")
-            file.write(str(self.ring_manager.detected_rings))
+    def get_most_wanted_data(self):
+        """
+        Function for finding the most wanted mercenary hiding place and prison.
 
-            file.write("\nFace data:\n")
-            file.write(str(self.face_manager.detected_faces))
-
-            file.write("\nCylinder data:\n")
-            for cylinder in self.cylinder_manager.detected_cylinders:
-                file.write(
-                    f"cylinder_id: {cylinder.cylinder_id}, color: {cylinder.cylinder_color},"
-                    f" cylinder_greet_pose: {cylinder.cylinder_greet_pose} , cylinder_pose:"
-                    f" {cylinder.cylinder_pose}\n"
-                )
-
+        Returns:
+            Tuple: (hiding_place_cylinder, prison_ring)
+        """
         # go through all mercenary infos and find one with highest wanted price
         highest_mercenary = max(self.mercenary_infos, key=lambda x: x.wanted_price)
         rospy.loginfo(
@@ -703,15 +630,8 @@ class Brain:
                 break
 
         if hiding_place_cylinder is None:
-            rospy.logerr(
-                "Could not find cylinder with same color as mercenary hiding place this should not"
-                " happen"
-            )
-            return
-
-        rospy.loginfo(
-            f"Remembered about he {hiding_place_cylinder.cylinder_color} cylinder that someone"
-        )
+            rospy.logerr("Could not find cylinder with same color as mercenary hiding place")
+            return None, None
 
         prison_ring = None
         for ring in self.ring_manager.detected_rings:
@@ -719,14 +639,79 @@ class Brain:
                 prison_ring = ring
 
         if prison_ring is None:
-            rospy.logerr(
-                "Could not find ring with same color as prison ring this should not happen"
-            )
-            return
+            rospy.logerr("Could not find ring with the same color as a prison ring")
+            return None, None
 
-        self.move_to_goal(
-            *hiding_place_cylinder.cylinder_greet_pose,
-        )
+        return hiding_place_cylinder, prison_ring
+
+    def think(self):
+        """
+        Main logic function for the turtle bot's brain. The turtle bot moves through the keypoints
+        in the order determined by the nearest neighbor algorithm, performing a 360-degree rotation
+        at each keypoint. If any new faces are detected during the rotation, the turtle bot moves to
+        the face location and then continues to the next keypoint.
+        """
+
+        detected_face_group_ids = set()
+        detected_ring_group_ids = set()
+        detected_cylinder_group_ids = set()
+
+        goals = self.map_manager.get_goals()
+        arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
+
+        while not rospy.is_shutdown():
+            optimized_path = self.nearest_neighbor_path(goals, goals[0])
+
+            for i, goal in enumerate(optimized_path):
+                self.map_manager.publish_markers_of_goals(goals=goals, duration=500)
+
+                rospy.loginfo(
+                    f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
+                    f" {len(detected_face_group_ids)}."
+                )
+
+                goal_pose = Pose()
+                goal_pose.position.x, goal_pose.position.y = goal[0], goal[1]
+                goal_pose.orientation = Quaternion(0, 0, -0.707, 0.707)  # always face south
+                self.move_to_goal(goal_pose)
+
+                rospy.sleep(2.0)
+
+                self.rotate(360, angular_speed=0.6)
+
+                # Process new faces
+                new_face_count = self.face_manager.detection_count() - len(detected_face_group_ids)
+                rospy.loginfo(f" {new_face_count} new faces detected.")
+                if new_face_count > 0:
+                    self.visit_new_faces(detected_face_group_ids)
+
+                # Process new rings
+                new_ring_count = self.ring_manager.detection_count() - len(detected_ring_group_ids)
+                rospy.loginfo(f" {new_ring_count} new rings detected.")
+                if new_ring_count > 0:
+                    self.process_new_rings(detected_ring_group_ids)
+
+                # Process new cylinders
+                new_cylinder_count = self.cylinder_manager.detection_count() - len(
+                    detected_cylinder_group_ids
+                )
+                rospy.loginfo(f" {new_cylinder_count} new cylinders detected.")
+                if new_cylinder_count > 0:
+                    self.process_new_cylinders(detected_cylinder_group_ids)
+
+            # Check if enough data has been collected to complete the mission
+            # If not then get additional goals
+            if not MercenaryInfo.are_complete(self.mercenary_infos):
+                rospy.loginfo("Mercenary Infos are not complete. Adding additional goals.")
+                goals = self.get_additional_goals(previous_goals=goals)
+            else:
+                break
+
+        arm_cam_timer.shutdown()
+
+        hiding_place_cylinder, prison_ring = self.get_most_wanted_data()
+
+        self.move_to_goal(hiding_place_cylinder.cylinder_greet_pose)
         self.sound_player.say(hiding_place_cylinder.cylinder_color)
 
         aprox_park_location = self.map_manager.get_object_greet_pose(
@@ -734,14 +719,7 @@ class Brain:
             prison_ring.ring_pose.position.y,
             erosion=6,
         )
-        self.move_to_goal(
-            aprox_park_location.position.x,
-            aprox_park_location.position.y,
-            aprox_park_location.orientation.x,
-            aprox_park_location.orientation.y,
-            aprox_park_location.orientation.z,
-            aprox_park_location.orientation.w,
-        )
+        self.move_to_goal(aprox_park_location)
 
         self.arm_manager.move_arm("extend_front_down")
 
@@ -754,14 +732,14 @@ class Brain:
             f" {prison_ring.ring_pose.position.y}"
         )
 
-        distance_to_green_ring = self.map_manager.euclidean_distance(
+        distance_to_prison_ring = self.map_manager.euclidean_distance(
             prison_ring.ring_pose.position.x,
             prison_ring.ring_pose.position.y,
             aprox_park_location.position.x,
             aprox_park_location.position.y,
         )
         rospy.loginfo(
-            f"Distance between green ring and approximate parking spot: {distance_to_green_ring}"
+            f"Distance between green ring and approximate parking spot: {distance_to_prison_ring}"
         )
 
         for i in range(10):
@@ -797,9 +775,7 @@ class Brain:
                 self.velocity_publisher.publish(twist)
                 break
 
-        # rotate to find the green ring
         self.rotate(70, angular_speed=0.5)
-
         self.rotate(140, angular_speed=0.5, clockwise=False)
 
         # hide camera
@@ -833,12 +809,7 @@ class Brain:
         )
 
         self.move_to_goal(
-            aprox_park_location.position.x,
-            aprox_park_location.position.y,
-            aprox_park_location.orientation.x,
-            aprox_park_location.orientation.y,
-            aprox_park_location.orientation.z,
-            aprox_park_location.orientation.w,
+            aprox_park_location,
         )
 
         rospy.loginfo("Initiating parking procedure")

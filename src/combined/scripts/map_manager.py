@@ -102,7 +102,7 @@ class MapManager:
 
     def map_callback(self, map_data) -> None:
         """
-        Process the map data to find goals and publish markers
+        Process the map data to find goals
 
         Args:
             map_data (OccupancyGrid): Map data to process.
@@ -508,11 +508,10 @@ class MapManager:
             return self.goals_ready
 
     def get_goals(self) -> List[Tuple[float, float]]:
-        """Get the list of goals
-
-        Returns:
-            list: List of goals.
         """
+        Get the current goals.
+        """
+
         with self.map_lock:
             return self.goal_points
 
@@ -558,7 +557,6 @@ class MapManager:
         goals.sort(key=lambda goal: ((goal[0] - robot_x) ** 2 + (goal[1] - robot_y) ** 2))
 
         self.goal_points = goals
-        self.publish_markers_of_goals(goals)
         self.goals_ready = True
 
     def skeletonize_map(self) -> np.ndarray:
@@ -588,7 +586,7 @@ class MapManager:
 
         return skeleton_overlay
 
-    def publish_markers_of_goals(self, goals: list) -> None:
+    def publish_markers_of_goals(self, goals: list, duration: float) -> None:
         """
         Publish markers for the goals in RViz
 
@@ -608,7 +606,7 @@ class MapManager:
             marker.type = Marker.CUBE
             marker.action = Marker.ADD
             marker.frame_locked = False
-            marker.lifetime = rospy.Duration(2)
+            marker.lifetime = rospy.Duration(duration)
             marker.scale = Vector3(0.1, 0.1, 0.1)
             marker.color = ColorRGBA(1.0, 0.5, 0.0, 1.0)  # orange color
             marker_array.markers.append(marker)
@@ -1015,7 +1013,7 @@ def test():
         if map_manager.is_ready():
             goals = map_manager.get_goals()
             if goals is not None and len(goals) > 0:
-                map_manager.publish_markers_of_goals(goals)
+                map_manager.publish_markers_of_goals(goals, duration=1.5)
             rate.sleep()
 
 
