@@ -219,10 +219,10 @@ class RingDetector:
             # Set the dimensions of the image
             self.dims = rgb_img.shape
 
-            # Tranform image to gayscale
+            # Transform image to grayscale
             gray = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
 
-            # Do histogram equlization
+            # Do histogram equalization
             img = cv2.equalizeHist(gray)
 
             # Binarize the image using adaptive thresholding
@@ -233,8 +233,16 @@ class RingDetector:
             # Extract contours from the binary image
             contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-            # Fit elipses to all extracted contours with enough points
+            # Fit ellipses to all extracted contours with enough points
             ellipses = [cv2.fitEllipse(cnt) for cnt in contours if cnt.shape[0] >= 20]
+
+            # # Visualize the contours and save them in the ./debug/contour.png
+            # cv2.drawContours(rgb_img, contours, -1, (0, 255, 0), 1)
+            # cv2.imwrite("debug/contour.png", rgb_img)
+
+            # for ellipse in ellipses:
+            #     cv2.ellipse(rgb_img, ellipse, (0, 255, 0), 2)
+            #     cv2.imwrite("debug/ellipses.png", rgb_img)
 
             # Find pairs of ellipses with centers close to each other
             candidates = [
@@ -270,9 +278,16 @@ class RingDetector:
             depth_img (np.ndarray): Depth image.
             depth_img_time (rospy.Time): Time stamp of the depth image.
         """
+        # Initialize an output image for visualization
+        output_img = rgb_img.copy()
+
         # Iterate over the ellipse candidate pairs to find the rings
         for inner_ellipse, outer_ellipse in candidates:
-            # Calculcate the average size and center of the inner ellipse
+            # output_img = cv2.ellipse(output_img, inner_ellipse, (0, 255, 0), 1)
+            # output_img = cv2.ellipse(output_img, outer_ellipse, (0, 0, 255), 1)
+            # cv2.imwrite("./debug/ring_ellipses.png", output_img)
+
+            # Calculate the average size and center of the inner ellipse
             inner_avg_size = (inner_ellipse[1][0] + inner_ellipse[1][1]) / 2
             inner_center = (inner_ellipse[0][1], inner_ellipse[0][0])
 
@@ -318,6 +333,9 @@ class RingDetector:
             ring_mask = self.ellipse2array(
                 inner_ellipse, outer_ellipse, rgb_img.shape[0], rgb_img.shape[1]
             )
+
+            # visualize_ring_mask = np.where(ring_mask == 255, 255, 0)
+            # cv2.imwrite("./debug/ring_mask.png", visualize_ring_mask)
 
             # Calculate median depth value of the ellipse, where ellipse is on the image
             median_ring_depth = float(np.nanmedian(depth_img[ring_mask == 255]))

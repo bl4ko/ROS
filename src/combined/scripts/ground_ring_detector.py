@@ -145,7 +145,7 @@ class RingDetector:
         time_synchronizer.registerCallback(self.image_callback)
         self.image_lock = threading.Lock()
 
-        # Publiser for the visualization markers
+        # Publisher for the visualization markers
         self.markers_pub = rospy.Publisher("ground_ring_markers", MarkerArray, queue_size=1000)
 
         # Object we use for transforming between coordinate frames
@@ -249,10 +249,10 @@ class RingDetector:
             # Set the dimensions of the image
             self.dims = rgb_img.shape
 
-            # Tranform image to gayscale
+            # Transform image to grayscale
             gray = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
 
-            # Do histogram equlization
+            # Do histogram equalization
             img = cv2.equalizeHist(gray)
 
             # Binarize the image using adaptive thresholding

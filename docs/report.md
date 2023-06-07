@@ -18,7 +18,7 @@ We have created an exploration function that returns the best keypoints to visit
 
 The resulting keypoints look like this:
 
-![keypoints](./images/kmap.png)
+![keypoints](./images/map.png)
 
 #### Exploration Extended: Additional Keypoints from Searched Space
 
@@ -32,9 +32,47 @@ In conclusion, this extended exploration strategy helps the robot more thoroughl
 
 ### Cylinder Detection
 
+For detecting cylinders we have chosen to use the Point Cloud Library (PCL) library. We have used the following steps:
+
+1. Downsample the point cloud data, to reduce number of points (with `voxel_grid_filter`)
+2. Filter the point cloud data based on depth (z-axis `[0, 1.9]`)
+3. Filter the point cloud based on the height (y-axis `[-0.3, 0.2]`)
+4. Estimate **normals**
+5. Perform planar segmentation to identify largest planar component, remove points on it from the point cloud
+   - largest planar component is the ground
+6. Perform **cylinder segmentation** using RANSAC
+   - we use a model `pcl:SACMODEL_CYLINDER` to find cylindrical shape in the data.
+   - then we perform up to 10000 iterations of RANSAC to find the best model
+7. When cylinder is detected, we check if there have been any other detections at this `Pose`. If there were more than 5 detections of cylinder with pose close enough (`object_proximity_threshold=1`), we assume that this is a valid detection and we publish it on the `/detected_cylinders` topic.
+
 ### Ring Detection
 
+For the ring detection we have chosen the **two ellipse method**:
+
+- we binarize the image using adaptive thresholding
+- we extract the **contours** from the binary image
+    ![contour](./images/contour.png)
+- we fit ellipses to all extracted contours with enough points
+    ![ellipse](./images/ellipses.png)
+- we find the pairs of ellipses with centers close to each other. Each pair we call a **candidate**
+    ![ring_ellipses](./images/ring_ellipses.png)
+- we then process each candidate in the following way
+  - we calculate the coordinates of the inner and outer ellipse
+  - from inner ellipse we calculate the **candidate center** (x, y)
+    - we then create a squared slice of the center (8x8) and convert all pixels that have `nan` value to 0 (depth black unknown). Then we do a sum of all these center pixels and check if the sum is smaller than 0.1. If it is this means that the circle has a hole in the middle and it represents a valid ring. We also check that the detection is not too far away (distance threshold)
+  - ![ring_mask](./images/ring_mask.png)
+
+#### Ring Clustering
+
+After a valid ring is detected, we check if there have been any other detection close to this `Pose`. We form RingGroups where each RingGroup represent detections corresponding to the same ring. The distance to be part of the ring group is 0.5m and is calculated using `euclidean_distance` to the average center of the ring group. Also the color of the ring group is the most common color of all the detections in the group.
+
 ### Ground Ring Detection
+
+Works completely the same as the ring detection, but instead of checking the centre of the ring, we just check that the ring is big enough (inner_elipse > threshold)
+
+#### Ground Ring Clustering
+
+Same as ring clustering.
 
 ### Face Detection
 
@@ -43,7 +81,6 @@ In conclusion, this extended exploration strategy helps the robot more thoroughl
 ## 3. Implementation and Integration
 
 Describe the actual implementation of the methods and integration of different components into the integrated system. Describe how have you integrated all the components in ROS.
-
 
 ## 4. Results
 
@@ -107,18 +144,8 @@ self.searched_space_timer = rospy.Timer(
 
 ### Detection Workflow
 
-We have a subscriber on `/camera/depth/points` topic which calls the `cylinder_detection_callback` function:
 
-1. Downsample the point cloud data, to reduce number of points (with `voxel_grid_filter`)
-2. Filter the point cloud data based on depth (z-axis `[0, 1.9]`)
-3. Filter the point cloud based on the height (y-axis `[-0.3, 0.2]`)
-4. Estimate **normals**
-5. Perform planar segmentation to identify largest planar component, remove points on it from the point cloud
-   - largest planar component is the ground
-6. Perform **cylinder segmentation** using RANSAC
-   - we use a model `pcl:SACMODEL_CYLINDER` to find cylindrical shape in the data.
-   - then we perform up to 10000 iterations of RANSAC to find the best model
 
 ### Robust Cylinder Detection
 
-When cylinder is detected, we check if there have been any other detections at this `Pose`. If there were more than 5 detections of cylinder with pose close enough (`object_proximity_threshold=1`), we assume that this is a valid detection and we publish it on the `/detected_cylinders` topic.
+
