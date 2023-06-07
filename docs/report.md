@@ -47,10 +47,24 @@ self.searched_space_timer = rospy.Timer(
 
 ## Face Detection
 
-
 ## Ring Detection
 
 ## Ground Ring Detection
 
 ## Cylinder Detection
 
+When cylinder is detected, we check if there have been any other detections at this `Pose`. If there were more than 5 detections of cylinder with pose close enough (`object_proximity_threshold=1`), we assume that this is a valid detection and we publish it on the `/detected_cylinders` topic.
+
+### Detection Workflow
+
+We have a subscriber on `/camera/depth/points` topic which calls the `cylinder_detection_callback` function:
+
+1. Downsample the point cloud data, to reduce number of points (with `voxel_grid_filter`)
+2. Filter the point cloud data based on depth (z-axis `[0, 1.9]`)
+3. Filter the point cloud based on the height (y-axis `[-0.3, 0.2]`)
+4. Estimate **normals**
+5. Perform planar segmentation to identify largest planar component, remove points on it from the point cloud
+   - largest planar component is the ground
+6. Perform **cylinder segmentation** using RANSAC
+   - we use a model `pcl:SACMODEL_CYLINDER` to find cylindrical shape in the data.
+   - then we perform up to 10000 iterations of RANSAC to find the best model
