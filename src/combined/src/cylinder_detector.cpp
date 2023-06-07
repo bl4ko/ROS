@@ -26,6 +26,8 @@
 #include <laser_geometry/laser_geometry.h>
 // for custom messages about greeting the detected cylinder
 #include "combined/CylinderGreetInstructions.h"
+#include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/visualization/point_cloud_color_handlers.h>
 
 // for laser projection
 // laser_geometry::LaserProjection projector_;
@@ -362,12 +364,14 @@ void cloud_cb_basic_depth(const pcl::PCLPointCloud2ConstPtr &cloud_blob)
     // Downsample the point cloud data
     downsample_pointcloud(cloud_blob, cloud);
     ROS_INFO("PointCloud has: %lu data points.", cloud->points.size());
+    // writer.write<PointT>("./debug/cloud_downsampled.pcd", *cloud, false);
 
     // Filter the point cloud data based on depth (z-axis)
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
     pass.setFilterLimits(0, 1.9);
     pass.filter(*cloud_filtered_depth);
+    writer.write<PointT>("./debug/cloud_filtered_depth.pcd", *cloud_filtered_depth, false);
 
     // Filter the point cloud based on height (y-axis)
     pass.setInputCloud(cloud_filtered_depth);
@@ -375,6 +379,7 @@ void cloud_cb_basic_depth(const pcl::PCLPointCloud2ConstPtr &cloud_blob)
     pass.setFilterLimits(-0.3, 0.2);
     pass.filter(*cloud_filtered);
     ROS_INFO("PointCloud after filtering has: %lu data points.", cloud_filtered->points.size());
+    // writer.write<PointT>("./debug/height_filtered_cloud.pcd", *cloud_filtered, false);
 
     // If filtered cloud has insufficient points, exit
     if (cloud_filtered->points.size() <= 10)

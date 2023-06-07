@@ -2,9 +2,9 @@
 
 ## 1. Introduction
 
-## 2. Methods
+This report documents our team's development of an autonomous robotic system. The robot's task was to navigate through a specified area, detect and recognize faces, rings, and cylinders, gather information, and execute particular actions based on its findings. The core technologies implemented include ROS (Robot Operating System), OpenCV for image processing tasks, PCL (Point Cloud Library) for 3D object recognition, and Google's MediaPipe library for face detection.
 
-Describe the methods that you have used; how does your system detect and recognize faces, rings, and cylinders, what is the theory behind these methods? How does the robot navigate around the competition area? Focus on the theoretical part of the methods and not on the implementation.
+## 2. Methods
 
 ### Exploration
 
@@ -43,7 +43,10 @@ For detecting cylinders we have chosen to use the Point Cloud Library (PCL) libr
 6. Perform **cylinder segmentation** using RANSAC
    - we use a model `pcl:SACMODEL_CYLINDER` to find cylindrical shape in the data.
    - then we perform up to 10000 iterations of RANSAC to find the best model
-7. When cylinder is detected, we check if there have been any other detections at this `Pose`. If there were more than 5 detections of cylinder with pose close enough (`object_proximity_threshold=1`), we assume that this is a valid detection and we publish it on the `/detected_cylinders` topic.
+
+#### Cylinder Detection Clustering
+
+When cylinder is detected, we check if there have been any other detections at this `Pose`. If there were more than 5 detections of cylinder with pose close enough (`object_proximity_threshold=1`), we assume that this is a valid detection and we publish it on the `/detected_cylinders` topic.
 
 ### Ring Detection
 
@@ -87,8 +90,13 @@ For face detection we have used google's `mediapipe library`. We are using the `
 
 For each face detection we check if there have been any other detections close to its `Pose`. If so add it to the same face group. If not create a new face group. When a face group has more than 3 detections it is considered as a valid face detection.
 
+![face_detection](./images/face_detection.png)
+
 #### Poster detection
 
+For poster detection we are using `easyocr` library. We are using the `en` model for english text detection. So for each face, we create an bounding box around it, then we crop this bounding box and use our `easyocr` reader to detect text. If the text is detected, the face is considered as a poster.
+
+![text_region](./images/text_region.jpg)
 
 ## 3. Implementation and Integration
 
@@ -109,7 +117,7 @@ The `Brain` class is the main class of the system. It connects all of the detect
 
 ![graph](./graph/graph.png)
 
-#### Think
+### Think
 
 The main logic is implemented in the brain's `think` function. It goes like this:
 
@@ -204,7 +212,6 @@ After the initial goals have been visited, we check that the `MercenaryInfo` obj
 
 After the `MercenaryInfo` object contains the full data, we extract `hiding_place_cylinder` and `prison_ring` from it.
 Then we go to the `hiding_place_cylinder` and greet it. After that we perform the `parking` operation inside the prison ring.
-
 
 ```python
 hiding_place_cylinder, prison_ring = self.get_most_wanted_data()
