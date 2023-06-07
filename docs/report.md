@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-This report documents our team's development of an autonomous robotic system. The robot's task was to navigate through a specified area, detect and recognize faces, rings, and cylinders, gather information, and execute particular actions based on its findings. The core technologies implemented include ROS (Robot Operating System), OpenCV for image processing tasks, PCL (Point Cloud Library) for 3D object recognition, and Google's MediaPipe library for face detection.
+This report documents our team's development of an autonomous robotic system. The robot's task was to navigate through a specified area, detect and recognize faces, rings, and cylinders, gather information, and execute particular actions based on its findings. The core technologies implemented include ROS (Robot Operating System), OpenCV for image processing tasks, PCL (Point Cloud Library) for 3D object recognition, and Google's MediaPipe library for face detection. There was also a task of face detecting and greeting on a real robot.
 
 ## 2. Methods
 
@@ -97,6 +97,10 @@ For each face detection we check if there have been any other detections close t
 For poster detection we are using `easyocr` library. We are using the `en` model for english text detection. So for each face, we create an bounding box around it, then we crop this bounding box and use our `easyocr` reader to detect text. If the text is detected, the face is considered as a poster.
 
 ![text_region](./images/text_region.jpg)
+
+### Real World
+We successfully implemented face detection, AMCL navigation, and greeting of faces on a real-world robot and polygon. This was a particularly challenging task due to hardware and connectivity limitations.
+In our experience, we found that sunlight in the lab affected detection accuracy, and we addressed this by blinding the folds and using artificial lights. The camera stream was also significantly laggy due to limited bandwidth. We improved this by displaying not the raw RGB image stream from the camera, but a compressed version in RViz. Due to challenging environmental conditions, we had to fine-tune our face detection algorithms to increase robustness. We also slowed the robot down using AMCL parameters to mitigate the lag. It's worth noting that we never hardcoded any points on the map; the robot used exploration to find the faces, unlike other teams who just hardcoded the points in front of the faces. There's a short clip of the robot working on TikTok [Link to the video](https://www.tiktok.com/@lukadragar/video/7226414643663719707?_r=1&_t=8bpHBCdADCV).
 
 ## 3. Implementation and Integration
 
