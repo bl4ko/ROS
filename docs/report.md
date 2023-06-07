@@ -71,7 +71,7 @@ After a valid ring is detected, we check if there have been any other detection 
 
 ### Ground Ring Detection
 
-Works completely the same as the ring detection, but instead of checking the centre of the ring, we just check that the ring is big enough (inner_elipse > threshold)
+Works completely the same as the ring detection, but instead of checking the centre of the ring, we just check that the ring is big enough (inner_elipse > threshold). We also get the image from the arm camera which is looking directly to the ground and has a better view of the ground rings.
 
 #### Ground Ring Clustering
 
@@ -88,9 +88,20 @@ For face detection we have used google's `mediapipe library`. We are using the `
 
 #### Face Clustering
 
-For each face detection we check if there have been any other detections close to its `Pose`. If so add it to the same face group. If not create a new face group. When a face group has more than 3 detections it is considered as a valid face detection.
+For each face detection we check if there have been any other detections close to its `Pose`. If so add it to the same face group. If not create a new face group. When a face group has more than 3 detections it is considered as a valid face detection. This allows us to robustly detect faces even if the face detection is not very accurate.
 
-![face_detection](./images/face_detection.png)
+#### Face Greet Points
+
+For each **face group** we calculate the best **greet locations** in the following way:
+
+1. We iterate over all the faces within the group. For each face, we extract relevant information such as the robot's coordinates, the left and right face poses, the confidence level, and the face's distance from the robot.
+2. For each face we then calculate the **greet location** based on the average pose, robot coordinates and the face poses
+   - we calculate a perprendicular vector to the line going through left and right face pose
+   - then we choose a suitable point on this vector, based on reachability and we utilize the `breseham` algorithm to find the closest reachable point
+3. We calculate the distance between the greet location and the face location using the `euclidean_distance` function
+4. To determine the weight of the greet location, we multiply the confidence level by the inverse of the face's distance, and then multiply that by the distance between the greet location and the face location
+5. We update the weighted greet locations by adding the current greet location multiplied by the weight, and we update the total weight by adding the weight
+6. After iterating over all faces in the group, we normalize the weighted greet locations by dividing them by the total weight, resulting in the average face greet location
 
 #### Poster detection
 
@@ -99,6 +110,7 @@ For poster detection we are using `easyocr` library. We are using the `en` model
 ![text_region](./images/text_region.jpg)
 
 ### Real World
+
 We successfully implemented face detection, AMCL navigation, and greeting of faces on a real-world robot and polygon. This was a particularly challenging task due to hardware and connectivity limitations.
 In our experience, we found that sunlight in the lab affected detection accuracy, and we addressed this by blinding the folds and using artificial lights. The camera stream was also significantly laggy due to limited bandwidth. We improved this by displaying not the raw RGB image stream from the camera, but a compressed version in RViz. Due to challenging environmental conditions, we had to fine-tune our face detection algorithms to increase robustness. We also slowed the robot down using AMCL parameters to mitigate the lag. It's worth noting that we never hardcoded any points on the map; the robot used exploration to find the faces, unlike other teams who just hardcoded the points in front of the faces. There's a short clip of the robot working on TikTok [Link to the video](https://www.tiktok.com/@lukadragar/video/7226414643663719707?_r=1&_t=8bpHBCdADCV).
 
@@ -156,52 +168,52 @@ an iteration before that. If so, we assume that a new detection has been found, 
 
 ```python
 while not rospy.is_shutdown() and len(goals) > 0:
-            optimized_path = self.nearest_neighbor_path(goals, goals[0])
+    optimized_path = self.nearest_neighbor_path(goals, goals[0])
 
-            for i, goal in enumerate(optimized_path):
-                self.map_manager.publish_markers_of_goals(goals=goals, duration=500)
+    for i, goal in enumerate(optimized_path):
+        self.map_manager.publish_markers_of_goals(goals=goals, duration=500)
 
-                rospy.loginfo(
-                    f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
-                    f" {len(detected_face_group_ids)}."
-                )
+        rospy.loginfo(
+            f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
+            f" {len(detected_face_group_ids)}."
+        )
 
-                goal_pose = Pose()
-                goal_pose.position.x, goal_pose.position.y = goal[0], goal[1]
-                goal_pose.orientation = Quaternion(0, 0, -0.707, 0.707)  # always face south
-                self.move_to_goal(goal_pose)
+        goal_pose = Pose()
+        goal_pose.position.x, goal_pose.position.y = goal[0], goal[1]
+        goal_pose.orientation = Quaternion(0, 0, -0.707, 0.707)  # always face south
+        self.move_to_goal(goal_pose)
 
-                rospy.sleep(2.0)
+        rospy.sleep(2.0)
 
-                self.rotate(360, angular_speed=0.6)
+        self.rotate(360, angular_speed=0.6)
 
-                # Process new faces
-                new_face_count = self.face_manager.detection_count() - len(detected_face_group_ids)
-                rospy.loginfo(f" {new_face_count} new faces detected.")
-                if new_face_count > 0:
-                    self.visit_new_faces(detected_face_group_ids)
+        # Process new faces
+        new_face_count = self.face_manager.detection_count() - len(detected_face_group_ids)
+        rospy.loginfo(f" {new_face_count} new faces detected.")
+        if new_face_count > 0:
+            self.visit_new_faces(detected_face_group_ids)
 
-                # Process new rings
-                new_ring_count = self.ring_manager.detection_count() - len(detected_ring_group_ids)
-                rospy.loginfo(f" {new_ring_count} new rings detected.")
-                if new_ring_count > 0:
-                    self.process_new_rings(detected_ring_group_ids)
+        # Process new rings
+        new_ring_count = self.ring_manager.detection_count() - len(detected_ring_group_ids)
+        rospy.loginfo(f" {new_ring_count} new rings detected.")
+        if new_ring_count > 0:
+            self.process_new_rings(detected_ring_group_ids)
 
-                # Process new cylinders
-                new_cylinder_count = self.cylinder_manager.detection_count() - len(
-                    detected_cylinder_group_ids
-                )
-                rospy.loginfo(f" {new_cylinder_count} new cylinders detected.")
-                if new_cylinder_count > 0:
-                    self.process_new_cylinders(detected_cylinder_group_ids)
+        # Process new cylinders
+        new_cylinder_count = self.cylinder_manager.detection_count() - len(
+            detected_cylinder_group_ids
+        )
+        rospy.loginfo(f" {new_cylinder_count} new cylinders detected.")
+        if new_cylinder_count > 0:
+            self.process_new_cylinders(detected_cylinder_group_ids)
 
-            # Check if enough data has been collected to complete the mission
-            # If not then get additional goals
-            if not MercenaryInfo.are_complete(self.mercenary_infos):
-                rospy.loginfo("Mercenary Infos are not complete. Adding additional goals.")
-                goals = self.get_additional_goals(previous_goals=goals)
-            else:
-                break
+    # Check if enough data has been collected to complete the mission
+    # If not then get additional goals
+    if not MercenaryInfo.are_complete(self.mercenary_infos):
+        rospy.loginfo("Mercenary Infos are not complete. Adding additional goals.")
+        goals = self.get_additional_goals(previous_goals=goals)
+    else:
+        break
 ```
 
 After the initial goals have been visited, we check that the `MercenaryInfo` object is fullfilled. If not, we request `additional_goals` from the `map_manager` and repeat the process.
@@ -231,6 +243,8 @@ At the end we wave for the goodbye and play the victory sound.
 
 ## 4. Results
 
+The robot successfully completed the mission. It was able to detect all the faces, rings and cylinders. It was also able to park inside the prison ring.
+
 ## 5. Division of work
 
 Initially the team consisted 3 members, but after about 3 weeks one of the members left the project, due to difficulties following this course. The remaining two members continued working on the project and implemented the following:
@@ -251,7 +265,7 @@ Initially the team consisted 3 members, but after about 3 weeks one of the membe
   - face clustering,
   - refractoring architecture design into manager classes
 
-The code stats can also be found on github [here](https://github.com/bl4ko/ROS/graphs/contributors)
+The code stats can also be found on github [here](https://github.com/bl4ko/ROS/graphs/contributors).
 
 ## 6. Conclusion
 
