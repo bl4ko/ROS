@@ -279,7 +279,7 @@ class RingDetector:
             depth_img_time (rospy.Time): Time stamp of the depth image.
         """
         # Initialize an output image for visualization
-        output_img = rgb_img.copy()
+        # output_img = rgb_img.copy()
 
         # Iterate over the ellipse candidate pairs to find the rings
         for inner_ellipse, outer_ellipse in candidates:

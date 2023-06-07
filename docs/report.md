@@ -76,76 +76,172 @@ Same as ring clustering.
 
 ### Face Detection
 
-### Poster Detection
+For face detection we have used google's `mediapipe library`. We are using the `mp.solutions.face_detection` module. For each image we check the short and long range detection.
+
+1. The model takes in RGB image and outputs a confidence value
+2. If the confidence value is above a threshold, we assume that a face is detected
+3. We then calculate the bounding box around it., extract the depth information from the depth image and from that calculate the distance to the detected face.
+4. If the face position can be determined the face is added to face clusters.
+
+#### Face Clustering
+
+For each face detection we check if there have been any other detections close to its `Pose`. If so add it to the same face group. If not create a new face group. When a face group has more than 3 detections it is considered as a valid face detection.
+
+#### Poster detection
+
 
 ## 3. Implementation and Integration
 
-Describe the actual implementation of the methods and integration of different components into the integrated system. Describe how have you integrated all the components in ROS.
+The `Brain` class is the main class of the system. It connects all of the detectors and other components together in the following way:
+
+- `move_base_client`: for sending goals to the robot
+- `map_manager`: for controlling the map and getting keypoints
+- `velocity_publisher`: for publishing velocity commands
+- `ring_manager`: for managing ring detections
+- `ground_ring_manager`: for managing ground ring detections
+- `face_manager`: for managing face detections
+- `cylinder_manager`: for managing cylinder detections
+- `arm_manager`: for controlling the robot's arm
+- `sound_player`: for playing sounds
+- `laser_manager`: for managing laser detections (if close to an obstacle)
+- `poster_info_proxy`: for getting information about the posters
+- `mercenary_infos`: for storing information about the people
+
+![graph](./graph/graph.png)
+
+#### Think
+
+The main logic is implemented in the brain's `think` function. It goes like this:
+
+First we initialize dictionaries to storing detected objects
+
+```python
+detected_face_group_ids = set()
+detected_ring_group_ids = set()
+detected_cylinder_group_ids = set()
+```
+
+Then we initialize the initial goal (keypoints) using `map_manager` class:
+
+```python
+goals = self.map_manager.get_goals()
+```
+
+We also setup callback function for adjusting robot's arm, so the robot's arm don't get stuck inside flying rings:
+
+```python
+arm_cam_timer = rospy.Timer(rospy.Duration(0.5), self.auto_adjust_arm_camera)
+```
+
+Now we start the main loop, iterating through all of the goals, received from the `map_manager`. First we calculate the
+optimized_path to all goals using the `nearest_neighbor_path`. Then we move to each goal and rotate 360 degrees to detect
+objects. Then for each object type (face, ring, cylinder) check if there are more detections that there have been
+an iteration before that. If so, we assume that a new detection has been found, in that case:
+
+- `face`: we go and greet the face, also every time we check if the face is on the poster, using `poster_info_proxy` service, after determening if the face is a poster or just a face, we do the corresponding dialogue (PosterDialogue or FaceDialogue) to get the data, inputed via cli. The data is stored in the `MercenaryInfo` object
+- `ring`: ring is added to the dict
+- `cylinder`: cylinder is added to the dict
+
+```python
+while not rospy.is_shutdown() and len(goals) > 0:
+            optimized_path = self.nearest_neighbor_path(goals, goals[0])
+
+            for i, goal in enumerate(optimized_path):
+                self.map_manager.publish_markers_of_goals(goals=goals, duration=500)
+
+                rospy.loginfo(
+                    f"Moving to goal {i + 1}/{len(optimized_path)}. Faces detected:"
+                    f" {len(detected_face_group_ids)}."
+                )
+
+                goal_pose = Pose()
+                goal_pose.position.x, goal_pose.position.y = goal[0], goal[1]
+                goal_pose.orientation = Quaternion(0, 0, -0.707, 0.707)  # always face south
+                self.move_to_goal(goal_pose)
+
+                rospy.sleep(2.0)
+
+                self.rotate(360, angular_speed=0.6)
+
+                # Process new faces
+                new_face_count = self.face_manager.detection_count() - len(detected_face_group_ids)
+                rospy.loginfo(f" {new_face_count} new faces detected.")
+                if new_face_count > 0:
+                    self.visit_new_faces(detected_face_group_ids)
+
+                # Process new rings
+                new_ring_count = self.ring_manager.detection_count() - len(detected_ring_group_ids)
+                rospy.loginfo(f" {new_ring_count} new rings detected.")
+                if new_ring_count > 0:
+                    self.process_new_rings(detected_ring_group_ids)
+
+                # Process new cylinders
+                new_cylinder_count = self.cylinder_manager.detection_count() - len(
+                    detected_cylinder_group_ids
+                )
+                rospy.loginfo(f" {new_cylinder_count} new cylinders detected.")
+                if new_cylinder_count > 0:
+                    self.process_new_cylinders(detected_cylinder_group_ids)
+
+            # Check if enough data has been collected to complete the mission
+            # If not then get additional goals
+            if not MercenaryInfo.are_complete(self.mercenary_infos):
+                rospy.loginfo("Mercenary Infos are not complete. Adding additional goals.")
+                goals = self.get_additional_goals(previous_goals=goals)
+            else:
+                break
+```
+
+After the initial goals have been visited, we check that the `MercenaryInfo` object is fullfilled. If not, we request `additional_goals` from the `map_manager` and repeat the process.
+
+```python
+        if not MercenaryInfo.are_complete(self.mercenary_infos):
+            rospy.loginfo("Mercenary Infos are not complete. Adding additional goals.")
+            goals = self.get_additional_goals(previous_goals=goals)
+        else:
+            break
+```
+
+After the `MercenaryInfo` object contains the full data, we extract `hiding_place_cylinder` and `prison_ring` from it.
+Then we go to the `hiding_place_cylinder` and greet it. After that we perform the `parking` operation inside the prison ring.
+
+
+```python
+hiding_place_cylinder, prison_ring = self.get_most_wanted_data()
+# Greet the target cylinder
+self.move_to_goal(hiding_place_cylinder.cylinder_greet_pose)
+self.sound_player.say(hiding_place_cylinder.cylinder_color)
+
+# Park inside the prison ring
+self.park_in_ring(prison_ring)
+```
+
+At the end we wave for the goodbye and play the victory sound.
 
 ## 4. Results
 
 ## 5. Division of work
 
+Initially the team consisted 3 members, but after about 3 weeks one of the members left the project, due to difficulties following this course. The remaining two members continued working on the project and implemented the following:
+
+- `Luka`:
+  - exploration (branch points, additional keypoints)
+  - cylinder detection,
+  - poster detection,
+  - parking,
+  - face detection,
+  - arm camera,
+  - laser manager for obstacle avoidance,
+- `Gašper`:
+  - ring detection,
+  - ground ring detection,
+  - sound player,
+  - dialogue manager,
+  - face clustering,
+  - refractoring architecture design into manager classes
+
+The code stats can also be found on github [here](https://github.com/bl4ko/ROS/graphs/contributors)
+
 ## 6. Conclusion
 
-
-## Brain
-
-The brain is the main node of the project. It communicates with all other nodes:
-
-- `map_manager` that handles the map and costmap
-- `ring_manager` than handles the ring detection
-- `face_manager` that handles the face detection
-- `cylinder_manager` that handles the cylinder detection
-- `ground_ring_manager` that handles the ground ring detection
-- `move_base` that handles the navigation
-
-## Map Handling
-
-We have created an `MapManager` object for handling the map and costmap.
-
-### Storing costmap and map
-
-Map is stored from the `/map` topic.
-
-Costmap is stored from the `/move_base/global_costmap/costmap` topic.
-
-### Creating Keypoints
-
-It is also responsible for creating the key points for the robot to visit. It does that in the
-following way:
-
-- It creates a skeleton overlay of the map
-- Than it finds the branch points of the skeleton
-
-![map](./images/map.png)
-
-### Additional Keypoints from Searched Space
-
-When these keypoints are not sufficient, it will also create more keypoints based on the searched space. Searched space is updated every 0.4 seconds:
-
-```python
-self.searched_space_timer = rospy.Timer(
-            rospy.Duration(0.4), lambda event: self.map_manager.update_searched_space()
-        )
-```
-
-- when the robot moves, it stores the circle around the robot as a searched space
-- when all keypoints are reached, and not all goals have been found, based on the searched space, new keypoints are created
-- It accomplishes this by processing a binary map of searched spaces, where it isolates unsearched areas and uses computer vision techniques to identify clusters of these areas. The function treats the centroid of each cluster as a potential goal. If the centroid is in a safe space or a safe point within the bounding box of the cluster can be found, it's added to the list of additional goals for further exploration.
-
-## Face Detection
-
-## Ring Detection
-
-## Ground Ring Detection
-
-## Cylinder Detection
-
-### Detection Workflow
-
-
-
-### Robust Cylinder Detection
-
-
+The project was a great learning experience. We have learned a lot about ROS, OpenCV, PCL, and other libraries. We have also learned a lot about the process of developing a complex system. We have learned how to work in a team and how to divide the work.
